@@ -340,7 +340,7 @@ def main(argv: List[str] | None = None) -> int:
 
     # Set up logging
     logging.basicConfig(
-        level=os.environ.get("ROBUSTA_QUEUE_LOG_LEVEL", "WARNING").upper(),
+        level=os.environ.get("QUEUE_MAX_LOG_LEVEL", "WARNING").upper(),
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%H:%M:%S",
     )

@@ -137,7 +137,7 @@ queue-max purge --days 7
 ```python
 # settings.py
 INSTALLED_APPS = ["queue_max.contrib.django", ...]
-ROBUSTA_QUEUE = {"SHARDS": 4, "RATE_LIMIT": 160}
+QUEUE_MAX = {"SHARDS": 4, "RATE_LIMIT": 160}
 
 # tasks.py
 from queue_max.contrib.django import task

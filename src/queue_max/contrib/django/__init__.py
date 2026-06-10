@@ -1,4 +1,4 @@
-"""Django integration for Robusta Queue.
+"""Django integration for Queue Max.
 
 Provides a @task decorator that integrates with Django models
 and management commands for queue operations.
@@ -10,7 +10,7 @@ Usage:
         'queue_max.contrib.django',
     ]
 
-    ROBUSTA_QUEUE = {
+    QUEUE_MAX = {
         'SHARDS': 4,
         'RATE_LIMIT': 160,
         'MAX_RETRIES': 3,
@@ -39,7 +39,7 @@ def _get_django_queue() -> BaseQueue:
     except ImportError:
         return BaseQueue()
 
-    config = getattr(settings, "ROBUSTA_QUEUE", {})
+    config = getattr(settings, "QUEUE_MAX", {})
     return BaseQueue(
         shards=config.get("SHARDS"),
         rate_limit=config.get("RATE_LIMIT"),
