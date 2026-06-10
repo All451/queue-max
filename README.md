@@ -1,4 +1,4 @@
-# Robusta Queue
+# Queue Max
 
 Task queue library with SQLite persistence, sharding, rate limiting, and circuit breaker.
 

@@ -1,13 +1,13 @@
 [project]
 name = "queue-max"
 version = "0.1.0"
-description = "Super robust task queue with SQLite sharding"
+description = "Task queue with SQLite sharding, rate limiting, and circuit breaker"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
-keywords = ["queue", "task-queue", "sqlite", "background-tasks"]
+keywords = ["queue", "task-queue", "sqlite", "background-tasks", "worker", "sharding"]
 authors = [
-    {name = "Queue Max Contributors"},
+    {name = "Alexandre All"},  # <-- coloca teu nome real se quiser
 ]
 
 classifiers = [
@@ -19,6 +19,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Operating System :: OS Independent",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: System :: Distributed Computing",
@@ -41,9 +42,8 @@ all = [
 ]
 
 [project.urls]
-homepage = "https://github.com/queue-max/queue-max"
-repository = "https://github.com/queue-max/queue-max"
-documentation = "https://queue-max.readthedocs.io"
+homepage = "https://github.com/all451/queue-max"
+repository = "https://github.com/all451/queue-max"
 
 [project.scripts]
 queue-max = "queue_max.cli:main"
