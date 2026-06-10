@@ -1,0 +1,78 @@
+[project]
+name = "robusta-queue"
+version = "0.1.0"
+description = "Super robust task queue with SQLite sharding"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+keywords = ["queue", "task-queue", "sqlite", "background-tasks"]
+authors = [
+    {name = "Robusta Queue Contributors"},
+]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Distributed Computing",
+]
+
+dependencies = [
+    "typing-extensions>=4.5.0",
+]
+
+[project.optional-dependencies]
+webhook = ["requests>=2.31.0"]
+django = ["Django>=3.2"]
+fastapi = ["fastapi>=0.100.0"]
+flask = ["Flask>=2.0"]
+all = [
+    "requests>=2.31.0",
+    "Django>=3.2",
+    "fastapi>=0.100.0",
+    "Flask>=2.0",
+]
+
+[project.urls]
+homepage = "https://github.com/robusta-queue/robusta-queue"
+repository = "https://github.com/robusta-queue/robusta-queue"
+documentation = "https://robusta-queue.readthedocs.io"
+
+[project.scripts]
+robusta-queue = "robusta_queue.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["robusta_queue*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "D", "UP", "B"]
+
+[tool.mypy]
+strict = true
+python_version = "3.9"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
