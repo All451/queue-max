@@ -18,9 +18,9 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-from robusta_queue.core.queue import Queue
+from queue_max.core.queue import Queue
 
-logger = logging.getLogger("robusta_queue.task")
+logger = logging.getLogger("queue_max.task")
 
 def _is_serializable(obj: Any) -> bool:
     """Check if an object is JSON-serializable."""

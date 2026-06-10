@@ -5,7 +5,7 @@ Super robust task queue with SQLite sharding, rate limiting, and circuit breaker
 ## Quick Start
 
 ```python
-from robusta_queue import Queue, Worker
+from queue_max import Queue, Worker
 
 queue = Queue()
 queue.enqueue({"task": "example"})

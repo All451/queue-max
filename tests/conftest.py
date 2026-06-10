@@ -10,7 +10,7 @@ import pytest
 @pytest.fixture
 def data_dir():
     """Create a temporary directory for test shard data."""
-    tmpdir = tempfile.mkdtemp(prefix="robusta_test_")
+    tmpdir = tempfile.mkdtemp(prefix="queue_max_test_")
     yield tmpdir
     shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -18,7 +18,7 @@ def data_dir():
 @pytest.fixture
 def queue(data_dir):
     """Create a Queue instance configured with small shard count."""
-    from robusta_queue import Queue
+    from queue_max import Queue
 
     q = Queue(
         shards=3,

@@ -1,6 +1,6 @@
 """Utility modules for Robusta Queue."""
 
-from robusta_queue.utils.helpers import (
+from queue_max.utils.helpers import (
     backoff_delay,
     determine_shard,
     get_env_int,

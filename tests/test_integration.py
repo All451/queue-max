@@ -8,8 +8,8 @@ import time
 
 import pytest
 
-from robusta_queue import Queue, Worker
-from robusta_queue.core.database import ShardManager
+from queue_max import Queue, Worker
+from queue_max.core.database import ShardManager
 
 
 class TestIntegration:

@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-from robusta_queue import RateLimitError
-from robusta_queue.core.rate_limiter import RateLimiter
+from queue_max import RateLimitError
+from queue_max.core.rate_limiter import RateLimiter
 
 
 class TestRateLimiter:

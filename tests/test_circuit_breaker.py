@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-from robusta_queue import CircuitBreakerOpenError
-from robusta_queue.core.circuit_breaker import CircuitBreaker, CircuitState
+from queue_max import CircuitBreakerOpenError
+from queue_max.core.circuit_breaker import CircuitBreaker, CircuitState
 
 
 class TestCircuitBreaker:

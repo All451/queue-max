@@ -5,7 +5,7 @@ and middleware for automatic queue management.
 
 Usage:
     from fastapi import FastAPI
-    from robusta_queue.contrib.fastapi import QueueMiddleware, BackgroundQueue
+    from queue_max.contrib.fastapi import QueueMiddleware, BackgroundQueue
 
     app = FastAPI()
     app.add_middleware(QueueMiddleware, max_workers=4)
@@ -19,9 +19,9 @@ Usage:
 import logging
 from typing import Any, Callable, Dict, Optional
 
-from robusta_queue import Queue, Worker
+from queue_max import Queue, Worker
 
-logger = logging.getLogger("robusta_queue.fastapi")
+logger = logging.getLogger("queue_max.fastapi")
 
 
 class BackgroundQueue:
@@ -92,7 +92,7 @@ class QueueMiddleware:
         """Start background worker pool."""
         if not self.process_function:
             return
-        from robusta_queue import WorkerPool
+        from queue_max import WorkerPool
 
         workers = [
             Worker(

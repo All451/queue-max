@@ -3,7 +3,7 @@
 import json
 import time
 
-from robusta_queue import Queue, Worker
+from queue_max import Queue, Worker
 
 # Queue configured for webhook processing
 queue = Queue(shards=4, rate_limit=160, max_retries=3)

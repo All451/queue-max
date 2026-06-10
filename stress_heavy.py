@@ -1,7 +1,7 @@
-"""Heavy stress test - Robusta Queue"""
+"""Heavy stress test - Queue Max"""
 import os, sys, tempfile, time, threading
 sys.path.insert(0, "src")
-from robusta_queue import Queue, Worker, WorkerPool
+from queue_max import Queue, Worker, WorkerPool
 from collections import Counter
 
 DATA = tempfile.mkdtemp(prefix="stress_heavy_")

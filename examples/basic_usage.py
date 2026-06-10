@@ -1,6 +1,6 @@
 """Basic usage example for Robusta Queue."""
 
-from robusta_queue import Queue, Worker
+from queue_max import Queue, Worker
 
 
 def process_task(payload: dict) -> str:

@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from robusta_queue import Queue, Worker
+from queue_max import Queue, Worker
 
 
 class TestWorker:

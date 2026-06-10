@@ -7,21 +7,21 @@ No Redis or RabbitMQ required. Zero external dependencies (except typing-extensi
 ## Installation
 
 ```bash
-pip install robusta-queue
+pip install queue-max
 ```
 
 With framework integrations:
 
 ```bash
-pip install robusta-queue[django]
-pip install robusta-queue[fastapi]
-pip install robusta-queue[flask]
+pip install queue-max[django]
+pip install queue-max[fastapi]
+pip install queue-max[flask]
 ```
 
 ## Quick Start
 
 ```python
-from robusta_queue import Queue, Worker
+from queue_max import Queue, Worker
 
 # Create queue
 queue = Queue()
@@ -73,7 +73,7 @@ worker.start()
 ### Queue
 
 ```python
-from robusta_queue import Queue
+from queue_max import Queue
 
 queue = Queue(shards=6, rate_limit=160, max_retries=3)
 
@@ -96,7 +96,7 @@ stats = queue.get_stats()
 ### Worker
 
 ```python
-from robusta_queue import Worker, WorkerPool
+from queue_max import Worker, WorkerPool
 
 worker = Worker("worker-1", process_function, queue)
 worker.start()
@@ -110,7 +110,7 @@ pool.stop_all()
 ### Decorator
 
 ```python
-from robusta_queue import task
+from queue_max import task
 
 @task(priority=2, max_retries=3)
 def send_email(to: str, subject: str):
@@ -122,12 +122,12 @@ send_email.delay("user@example.com", "Hello")
 ### CLI
 
 ```bash
-robusta-queue stats
-robusta-queue worker --function mymodule:myfunction --workers 4
-robusta-queue enqueue --payload '{"task": "test"}' --priority 2
-robusta-queue list --status failed --limit 20
-robusta-queue retry
-robusta-queue purge --days 7
+queue-max stats
+queue-max worker --function mymodule:myfunction --workers 4
+queue-max enqueue --payload '{"task": "test"}' --priority 2
+queue-max list --status failed --limit 20
+queue-max retry
+queue-max purge --days 7
 ```
 
 ## Framework Integrations
@@ -136,11 +136,11 @@ robusta-queue purge --days 7
 
 ```python
 # settings.py
-INSTALLED_APPS = ["robusta_queue.contrib.django", ...]
+INSTALLED_APPS = ["queue_max.contrib.django", ...]
 ROBUSTA_QUEUE = {"SHARDS": 4, "RATE_LIMIT": 160}
 
 # tasks.py
-from robusta_queue.contrib.django import task
+from queue_max.contrib.django import task
 @task
 def my_task(user_id): ...
 ```
@@ -151,7 +151,7 @@ Management commands: `python manage.py queue_worker`, `queue_stats`, `queue_purg
 
 ```python
 from fastapi import FastAPI
-from robusta_queue.contrib.fastapi import QueueMiddleware
+from queue_max.contrib.fastapi import QueueMiddleware
 
 app = FastAPI()
 app.add_middleware(QueueMiddleware, max_workers=4)
@@ -161,7 +161,7 @@ app.add_middleware(QueueMiddleware, max_workers=4)
 
 ```python
 from flask import Flask
-from robusta_queue.contrib.flask import QueueExtension
+from queue_max.contrib.flask import QueueExtension
 
 app = Flask(__name__)
 queue = QueueExtension(app)

@@ -12,7 +12,7 @@ class Command(BaseCommand):
         parser.add_argument("--days", type=int, default=7, help="Age threshold (days)")
 
     def handle(self, *args, **options):
-        from robusta_queue.contrib.django import _get_django_queue
+        from queue_max.contrib.django import _get_django_queue
 
         queue = _get_django_queue()
         removed = queue.cleanup_old_jobs(days=options["days"])

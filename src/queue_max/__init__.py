@@ -12,19 +12,19 @@ A zero-dependency (except typing-extensions) task queue library with:
 - Framework integrations (Django, FastAPI, Flask)
 
 Example:
-    >>> from robusta_queue import Queue, Worker
+    >>> from queue_max import Queue, Worker
     >>> queue = Queue()
     >>> queue.enqueue({"task": "send_email"})
     >>> worker = Worker("worker-1", lambda p: print(p), queue)
     >>> worker.start()
 """
 
-from robusta_queue.core.circuit_breaker import CircuitBreaker, CircuitState
-from robusta_queue.core.queue import Queue
-from robusta_queue.core.rate_limiter import RateLimitUnit, RateLimiter
-from robusta_queue.core.worker import AsyncWorker, Worker, WorkerPool, WorkerState
-from robusta_queue.core.decorator import periodic_task, retryable_task, task
-from robusta_queue.exceptions import (
+from queue_max.core.circuit_breaker import CircuitBreaker, CircuitState
+from queue_max.core.queue import Queue
+from queue_max.core.rate_limiter import RateLimitUnit, RateLimiter
+from queue_max.core.worker import AsyncWorker, Worker, WorkerPool, WorkerState
+from queue_max.core.decorator import periodic_task, retryable_task, task
+from queue_max.exceptions import (
     CircuitBreakerOpenError,
     ConfigurationError,
     JobFailedError,
@@ -32,7 +32,7 @@ from robusta_queue.exceptions import (
     RateLimitError,
     ShardError,
 )
-from robusta_queue.models.job import Job, JobPriority, JobResult, JobStatus
+from queue_max.models.job import Job, JobPriority, JobResult, JobStatus
 
 __version__ = "0.1.0"
 

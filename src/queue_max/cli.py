@@ -12,9 +12,9 @@ import os
 import sys
 from typing import Any, Dict, List
 
-from robusta_queue import Queue, Worker, WorkerPool
+from queue_max import Queue, Worker, WorkerPool
 
-logger = logging.getLogger("robusta_queue")
+logger = logging.getLogger("queue_max")
 
 
 def _format_table(headers: List[str], rows: List[List[Any]]) -> str:
@@ -251,7 +251,7 @@ def cmd_list(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     """Build the argument parser for the CLI."""
     parser = argparse.ArgumentParser(
-        prog="robusta-queue",
+        prog="queue-max",
         description="Robusta Queue - Super robust task queue with SQLite sharding",
     )
     parser.add_argument(

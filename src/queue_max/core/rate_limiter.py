@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, Optional
 
-from robusta_queue.exceptions import RateLimitError
+from queue_max.exceptions import RateLimitError
 
 
 class RateLimitUnit(Enum):

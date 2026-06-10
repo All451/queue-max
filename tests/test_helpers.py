@@ -2,7 +2,7 @@
 
 import pytest
 
-from robusta_queue.utils.helpers import (
+from queue_max.utils.helpers import (
     backoff_delay,
     determine_shard,
     is_retryable_error,

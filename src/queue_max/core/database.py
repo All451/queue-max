@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from robusta_queue.models.job import Job, JobStatus
-from robusta_queue.utils.helpers import backoff_delay, get_env_int, now_iso
+from queue_max.models.job import Job, JobStatus
+from queue_max.utils.helpers import backoff_delay, get_env_int, now_iso
 
 NUM_SHARDS = get_env_int("NUM_SHARDS", 6)
 DB_BUSY_TIMEOUT = get_env_int("DB_BUSY_TIMEOUT", 30000)

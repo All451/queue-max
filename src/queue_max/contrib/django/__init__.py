@@ -7,7 +7,7 @@ Usage:
     # settings.py
     INSTALLED_APPS = [
         ...
-        'robusta_queue.contrib.django',
+        'queue_max.contrib.django',
     ]
 
     ROBUSTA_QUEUE = {
@@ -17,7 +17,7 @@ Usage:
     }
 
     # tasks.py
-    from robusta_queue.contrib.django import task
+    from queue_max.contrib.django import task
 
     @task
     def send_welcome_email(user_id):
@@ -28,8 +28,8 @@ Usage:
 
 from typing import Any, Callable, Dict, Optional
 
-from robusta_queue import Queue as BaseQueue
-from robusta_queue import task as base_task
+from queue_max import Queue as BaseQueue
+from queue_max import task as base_task
 
 
 def _get_django_queue() -> BaseQueue:

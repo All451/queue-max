@@ -4,7 +4,7 @@ import importlib
 
 from django.core.management.base import BaseCommand, CommandError
 
-from robusta_queue import Queue, Worker
+from queue_max import Queue, Worker
 
 
 class Command(BaseCommand):
@@ -36,7 +36,7 @@ class Command(BaseCommand):
         if not callable(func):
             raise CommandError(f"'{func_name}' is not callable")
 
-        from robusta_queue.contrib.django import _get_django_queue
+        from queue_max.contrib.django import _get_django_queue
 
         queue = _get_django_queue()
         num_workers = options["workers"]
@@ -46,7 +46,7 @@ class Command(BaseCommand):
             for i in range(num_workers)
         ]
 
-        from robusta_queue import WorkerPool
+        from queue_max import WorkerPool
 
         pool = WorkerPool(workers)
         pool.start_all()

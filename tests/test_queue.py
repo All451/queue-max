@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from robusta_queue import Job, Queue, Worker
+from queue_max import Job, Queue, Worker
 
 
 class TestQueue:
@@ -85,16 +85,18 @@ class TestQueue:
         assert job2 is not None and job2.payload["task"] == "medium", f"Expected medium, got {job2}"
         assert job3 is not None and job3.payload["task"] == "low", f"Expected low, got {job3}"
 
-    @pytest.mark.skip("FIFO order within same priority is database-dependent")
-    def test_fifo_within_priority(self, queue):
-        """Test FIFO ordering within the same priority."""
-        queue.enqueue({"seq": 1}, priority=0)
-        queue.enqueue({"seq": 2}, priority=0)
-        queue.enqueue({"seq": 3}, priority=0)
+    def test_fifo_within_priority(self, data_dir):
+        """Test FIFO ordering within the same priority using a single shard."""
+        from queue_max import Queue
 
-        job1 = queue.pop_job("worker")
-        job2 = queue.pop_job("worker")
-        job3 = queue.pop_job("worker")
+        q = Queue(shards=1, rate_limit=1000, data_dir=data_dir)
+        q.enqueue({"seq": 1}, priority=0)
+        q.enqueue({"seq": 2}, priority=0)
+        q.enqueue({"seq": 3}, priority=0)
+
+        job1 = q.pop_job("worker")
+        job2 = q.pop_job("worker")
+        job3 = q.pop_job("worker")
 
         assert job1.payload["seq"] == 1
         assert job2.payload["seq"] == 2

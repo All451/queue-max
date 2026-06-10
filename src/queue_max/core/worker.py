@@ -14,10 +14,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from robusta_queue.core.queue import Queue
-from robusta_queue.utils.helpers import get_env_int, is_retryable_error, now_iso
+from queue_max.core.queue import Queue
+from queue_max.utils.helpers import get_env_int, is_retryable_error, now_iso
 
-logger = logging.getLogger("robusta_queue.worker")
+logger = logging.getLogger("queue_max.worker")
 
 
 class WorkerState(Enum):

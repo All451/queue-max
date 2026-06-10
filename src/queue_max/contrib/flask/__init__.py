@@ -4,7 +4,7 @@ Provides an extension pattern for easy integration with Flask apps.
 
 Usage:
     from flask import Flask
-    from robusta_queue.contrib.flask import QueueExtension
+    from queue_max.contrib.flask import QueueExtension
 
     app = Flask(__name__)
     queue = QueueExtension(app)
@@ -23,10 +23,10 @@ Usage:
 import logging
 from typing import Any, Callable, Dict, Optional
 
-from robusta_queue import Queue as BaseQueue
-from robusta_queue import task as base_task
+from queue_max import Queue as BaseQueue
+from queue_max import task as base_task
 
-logger = logging.getLogger("robusta_queue.flask")
+logger = logging.getLogger("queue_max.flask")
 
 
 class QueueExtension:
@@ -62,7 +62,7 @@ class QueueExtension:
             app: Flask application instance.
         """
         app.extensions = getattr(app, "extensions", {})
-        app.extensions["robusta_queue"] = self
+        app.extensions["queue_max"] = self
 
     def task(
         self,

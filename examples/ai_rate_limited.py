@@ -6,7 +6,7 @@ for AI/LLM services like OpenAI, Anthropic, etc.
 
 import time
 
-from robusta_queue import Queue, Worker
+from queue_max import Queue, Worker
 
 # Configure queue with rate limit matching your API tier
 # e.g., OpenAI free tier: 3 RPM, Tier 1: 500 RPM

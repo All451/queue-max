@@ -4,7 +4,7 @@ import json
 
 from django.core.management.base import BaseCommand
 
-from robusta_queue import Queue
+from queue_max import Queue
 
 
 class Command(BaseCommand):
@@ -17,7 +17,7 @@ class Command(BaseCommand):
         parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     def handle(self, *args, **options):
-        from robusta_queue.contrib.django import _get_django_queue
+        from queue_max.contrib.django import _get_django_queue
 
         queue = _get_django_queue()
 

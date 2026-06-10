@@ -69,7 +69,7 @@ class CircuitBreaker:
             Exception: Re-raises any exception from the called function.
         """
         if not self._try_call():
-            from robusta_queue.exceptions import CircuitBreakerOpenError
+            from queue_max.exceptions import CircuitBreakerOpenError
 
             raise CircuitBreakerOpenError(
                 f"Circuit breaker is OPEN (state: {self.state.value}). "

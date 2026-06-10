@@ -12,19 +12,19 @@ import time
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, Generator, List, Optional
 
-from robusta_queue.core.circuit_breaker import CircuitBreaker
-from robusta_queue.core.database import DATA_DIR, NUM_SHARDS, ShardManager
-from robusta_queue.core.rate_limiter import RateLimiter
-from robusta_queue.exceptions import QueueError
-from robusta_queue.models.job import Job
-from robusta_queue.utils.helpers import (
+from queue_max.core.circuit_breaker import CircuitBreaker
+from queue_max.core.database import DATA_DIR, NUM_SHARDS, ShardManager
+from queue_max.core.rate_limiter import RateLimiter
+from queue_max.exceptions import QueueError
+from queue_max.models.job import Job
+from queue_max.utils.helpers import (
     determine_shard,
     get_env_int,
     validate_payload,
     validate_priority,
 )
 
-logger = logging.getLogger("robusta_queue")
+logger = logging.getLogger("queue_max")
 
 class Queue:
     """Main queue for managing and processing jobs.
