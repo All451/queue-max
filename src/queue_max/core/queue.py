@@ -1,4 +1,4 @@
-"""Main Queue class for Robusta Queue.
+"""Main Queue class for Queue Max.
 
 Provides the primary API for enqueuing, processing, and managing jobs
 with support for sharding, rate limiting, circuit breaker, and monitoring.

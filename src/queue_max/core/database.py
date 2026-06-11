@@ -1,4 +1,4 @@
-"""Database and shard management for Robusta Queue.
+"""Database and shard management for Queue Max.
 
 Each shard is an independent SQLite database file with WAL mode.
 Uses thread-local connections for thread safety.

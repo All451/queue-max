@@ -1,6 +1,8 @@
-# Robusta Queue Documentation
+# Queue Max Documentation
 
 Super robust task queue with SQLite sharding, rate limiting, and circuit breaker.
+
+See [Stress Test Results](stress-test.md) for throughput, contention, and resilience benchmarks.
 
 ## Quick Start
 

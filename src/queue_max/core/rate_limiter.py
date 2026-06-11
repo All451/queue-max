@@ -1,4 +1,4 @@
-"""Token bucket rate limiter for Robusta Queue.
+"""Token bucket rate limiter for Queue Max.
 
 Thread-safe rate limiter with configurable rate limits, burst capacity,
 and adaptive rate adjustment.
@@ -138,7 +138,8 @@ class RateLimiter:
             refill_rate = self.rate_limit / 60.0
         tokens_to_add = elapsed * refill_rate
         if self.enable_jitter and tokens_to_add > 0:
-            jitter = tokens_to_add * 0.1 * ((hash(str(now)) % 100) / 100.0)
+            import random
+            jitter = tokens_to_add * 0.1 * random.random()
             tokens_to_add += jitter
         self._tokens = min(self.burst_capacity, self._tokens + tokens_to_add)
         self._last_refill = now

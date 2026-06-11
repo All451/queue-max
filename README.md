@@ -172,10 +172,14 @@ def my_task(): ...
 
 ## Performance
 
-- Enqueue: ~1,860 jobs/second (6 shards, WAL mode)
-- Process: ~1,500 jobs/second (6 shards, 6 workers)
-- Pop latency: <50ms average
+| Cenário | Throughput |
+|---------|-----------|
+| Burst (20 workers, 10 shards) | **~3.300 jobs/sec** |
+| Contenção (10 workers, 1 shard) | **~1.660 jobs/sec** |
+| Com 30% de falhas (8 workers) | **Estável** — circuit breaker não trip |
+
 - Max queue size: 1M+ jobs per shard
+- [Resultados detalhados dos stress tests](docs/stress-test.md)
 
 ## Running Tests
 

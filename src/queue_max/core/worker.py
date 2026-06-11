@@ -1,4 +1,4 @@
-"""Worker implementation for Robusta Queue.
+"""Worker implementation for Queue Max.
 
 Workers run in their own thread, polling the queue for jobs,
 executing the processing function, and managing job lifecycle.
@@ -209,22 +209,15 @@ class Worker:
                 self._stats.current_job_id = None
 
     def _execute_with_timeout(self, payload: Dict) -> Any:
-        """Execute function with job_timeout using SIGALRM (Unix only)."""
-        import signal as _signal
+        """Execute function with job_timeout using ThreadPoolExecutor."""
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
-        class _TimeoutError(Exception):
-            pass
-
-        def _handler(signum, frame):
-            raise _TimeoutError(f"Job exceeded {self.job_timeout}s timeout")
-
-        old = _signal.signal(_signal.SIGALRM, _handler)
-        _signal.alarm(int(self.job_timeout))
-        try:
-            return self.process_function(payload)
-        finally:
-            _signal.alarm(0)
-            _signal.signal(_signal.SIGALRM, old)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(self.process_function, payload)
+            try:
+                return future.result(timeout=self.job_timeout)
+            except FuturesTimeoutError:
+                raise TimeoutError(f"Job exceeded {self.job_timeout}s timeout")
 
     def _idle_wait(self) -> None:
         self._stop_event.wait(timeout=self.poll_interval)

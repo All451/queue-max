@@ -137,15 +137,17 @@ def is_retryable_error(error: Exception) -> bool:
     Returns:
         True if the job should be retried, False for permanent failure.
     """
+    import re
+
     error_str = str(error).lower()
     error_type = type(error).__name__.lower()
 
-    # Check for HTTP status-like errors in the message
-    for code in range(400, 500):
-        if str(code) in error_str and code != 429:
-            return False
+    # 4xx status codes (except 429) are permanent client errors
+    http_code_match = re.search(r"\b(4\d\d)\b", error_str)
+    if http_code_match and http_code_match.group(1) != "429":
+        return False
 
-    # Connection and timeout errors are retryable
+    # Connection, timeout, rate-limit, and server errors are retryable
     retryable_keywords = ["timeout", "connection", "temporary", "retryable", "500", "502", "503", "429"]
     for keyword in retryable_keywords:
         if keyword in error_str or keyword in error_type:

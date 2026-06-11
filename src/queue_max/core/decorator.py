@@ -1,4 +1,4 @@
-"""@task decorator for Robusta Queue.
+"""@task decorator for Queue Max.
 
 Converts regular functions into enqueuable tasks with support for:
 - Synchronous execution (direct call)
@@ -89,20 +89,16 @@ def task(
                 sig.bind(*args, **kwargs)
 
                 if timeout is not None:
-                    import signal as _signal
+                    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
-                    def _handler(signum, frame):
-                        raise TimeoutError(
-                            f"Task {task_name} exceeded {timeout}s timeout"
-                        )
-
-                    old = _signal.signal(_signal.SIGALRM, _handler)
-                    _signal.alarm(timeout)
-                    try:
-                        result = func(*args, **kwargs)
-                    finally:
-                        _signal.alarm(0)
-                        _signal.signal(_signal.SIGALRM, old)
+                    with ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(func, *args, **kwargs)
+                        try:
+                            result = future.result(timeout=timeout)
+                        except FuturesTimeoutError:
+                            raise TimeoutError(
+                                f"Task {task_name} exceeded {timeout}s timeout"
+                            )
                 else:
                     result = func(*args, **kwargs)
 

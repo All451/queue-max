@@ -1,4 +1,4 @@
-"""Circuit breaker implementation for Robusta Queue.
+"""Circuit breaker implementation for Queue Max.
 
 Implements the standard circuit breaker pattern with three states:
 - CLOSED: Normal operation, requests pass through
