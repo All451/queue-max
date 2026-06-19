@@ -1,4 +1,4 @@
-"""Command-line interface for Robusta Queue.
+"""Command-line interface for Queue Max.
 
 Provides commands for managing the queue, running workers,
 inspecting job status, and performing maintenance operations.
@@ -60,7 +60,7 @@ def cmd_stats(args: argparse.Namespace) -> None:
         print(json.dumps(stats, indent=2))
         return
 
-    print("\n  Robusta Queue Statistics")
+    print("\n  Queue Max Statistics")
     print("=" * 45)
     rows = [
         ["Pending", stats.get("pending", 0)],
@@ -179,15 +179,14 @@ def cmd_retry(args: argparse.Namespace) -> None:
     )
 
     if args.job_id is not None:
-        # Retry a single job (requires shard)
         if args.shard is None:
             print("Error: --shard is required when using --job-id")
             sys.exit(2)
-        # For a single job, we update it directly
-        if args.shard is not None:
-            retried = queue.shard_manager.retry_failed_jobs(args.shard)
-            # Note: retry_failed_jobs retries all in shard since we don't have single-job retry
-        print(f"  Retried jobs in shard {args.shard}.")
+        success = queue.shard_manager.retry_job(args.shard, args.job_id)
+        if success:
+            print(f"  Retried job {args.job_id} in shard {args.shard}.")
+        else:
+            print(f"  Job {args.job_id} not found or not in 'failed' status in shard {args.shard}.")
     else:
         retried = queue.retry_failed_jobs(shard_id=args.shard)
         if args.shard is not None:
@@ -252,7 +251,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the argument parser for the CLI."""
     parser = argparse.ArgumentParser(
         prog="queue-max",
-        description="Robusta Queue - Super robust task queue with SQLite sharding",
+        description="Queue Max - Task queue with SQLite sharding, rate limiting, and circuit breaker",
     )
     parser.add_argument(
         "--shards",
@@ -327,7 +326,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: List[str] | None = None) -> int:
-    """Main entry point for the Robusta Queue CLI.
+    """Main entry point for the Queue Max CLI.
 
     Args:
         argv: Command-line arguments (default: sys.argv[1:]).

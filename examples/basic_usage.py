@@ -1,4 +1,4 @@
-"""Basic usage example for Robusta Queue."""
+"""Basic usage example for Queue Max."""
 
 from queue_max import Queue, Worker
 

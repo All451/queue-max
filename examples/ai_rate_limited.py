@@ -1,6 +1,6 @@
 """AI/LLM API usage example with rate limiting.
 
-Shows how to use Robusta Queue to handle rate-limited API calls
+Shows how to use Queue Max to handle rate-limited API calls
 for AI/LLM services like OpenAI, Anthropic, etc.
 """
 

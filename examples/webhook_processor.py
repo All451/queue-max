@@ -1,4 +1,4 @@
-"""Webhook processing example with Robusta Queue."""
+"""Webhook processing example with Queue Max."""
 
 import json
 import time

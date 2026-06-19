@@ -1,4 +1,4 @@
-"""Framework integrations for Robusta Queue.
+"""Framework integrations for Queue Max.
 
 Available integrations:
 - Django: Management commands and @task decorator

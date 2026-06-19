@@ -1,4 +1,4 @@
-"""Core modules for Robusta Queue."""
+"""Core modules for Queue Max."""
 
 from queue_max.core.circuit_breaker import CircuitBreaker, CircuitState
 from queue_max.core.rate_limiter import RateLimitUnit, RateLimiter

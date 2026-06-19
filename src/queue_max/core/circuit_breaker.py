@@ -53,6 +53,14 @@ class CircuitBreaker:
         self._last_failure_time = 0.0
         self._mutex = threading.Lock()
 
+    def is_allowed(self) -> bool:
+        """Check if a call is currently allowed through the circuit.
+
+        Returns:
+            True if the call is allowed, False if circuit is open.
+        """
+        return self._try_call()
+
     def call(self, func: Callable, *args, **kwargs):
         """Execute a function with circuit breaker protection.
 
@@ -68,7 +76,7 @@ class CircuitBreaker:
             CircuitBreakerOpenError: If the circuit is open.
             Exception: Re-raises any exception from the called function.
         """
-        if not self._try_call():
+        if not self.is_allowed():
             from queue_max.exceptions import CircuitBreakerOpenError
 
             raise CircuitBreakerOpenError(
@@ -103,15 +111,15 @@ class CircuitBreaker:
                 return True
             return False
 
-    def _on_success(self) -> None:
-        """Handle a successful call."""
+    def record_success(self) -> None:
+        """Record a successful call, resetting the failure count."""
         with self._mutex:
             if self.state == CircuitState.HALF_OPEN:
                 self._set_state(CircuitState.CLOSED)
             self._failure_count = 0
 
-    def _on_failure(self) -> None:
-        """Handle a failed call."""
+    def record_failure(self) -> None:
+        """Record a failed call, potentially tripping the circuit."""
         with self._mutex:
             self._failure_count += 1
             self._last_failure_time = time.monotonic()
@@ -122,6 +130,14 @@ class CircuitBreaker:
                 and self._failure_count >= self.failure_threshold
             ):
                 self._set_state(CircuitState.OPEN)
+
+    def _on_success(self) -> None:
+        """Handle a successful call (used by call())."""
+        self.record_success()
+
+    def _on_failure(self) -> None:
+        """Handle a failed call (used by call())."""
+        self.record_failure()
 
     def _set_state(self, new_state: CircuitState) -> None:
         """Set the circuit state and trigger callback if configured.

@@ -8,9 +8,9 @@ from queue_max import Queue, Worker
 
 
 class Command(BaseCommand):
-    """Start a Robusta Queue worker."""
+    """Start a Queue Max worker."""
 
-    help = "Start a Robusta Queue worker"
+    help = "Start a Queue Max worker"
 
     def add_arguments(self, parser):
         parser.add_argument(

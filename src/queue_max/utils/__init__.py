@@ -1,4 +1,4 @@
-"""Utility modules for Robusta Queue."""
+"""Utility modules for Queue Max."""
 
 from queue_max.utils.helpers import (
     backoff_delay,

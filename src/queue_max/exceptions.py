@@ -1,4 +1,4 @@
-"""Custom exceptions for the Robusta Queue library."""
+"""Custom exceptions for Queue Max."""
 
 
 class QueueError(Exception):

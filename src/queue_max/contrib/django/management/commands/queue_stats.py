@@ -8,9 +8,9 @@ from queue_max import Queue
 
 
 class Command(BaseCommand):
-    """Display Robusta Queue statistics."""
+    """Display Queue Max statistics."""
 
-    help = "Display Robusta Queue statistics"
+    help = "Display Queue Max statistics"
 
     def add_arguments(self, parser):
         parser.add_argument("--shard", type=int, default=None, help="Specific shard")
@@ -30,7 +30,7 @@ class Command(BaseCommand):
             self.stdout.write(json.dumps(stats, indent=2))
             return
 
-        self.stdout.write("\n  Robusta Queue Statistics")
+        self.stdout.write("\n  Queue Max Statistics")
         self.stdout.write("=" * 40)
         self.stdout.write(f"  Pending:     {stats.get('pending', 0)}")
         self.stdout.write(f"  Processing:  {stats.get('processing', 0)}")

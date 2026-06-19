@@ -1,4 +1,4 @@
-"""Robusta Queue - Super robust task queue with SQLite sharding.
+"""Queue Max - Task queue with SQLite sharding, rate limiting, and circuit breaker.
 
 A zero-dependency (except typing-extensions) task queue library with:
 - SQLite-backed persistence with WAL mode

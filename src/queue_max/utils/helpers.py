@@ -1,4 +1,4 @@
-"""Utility helpers for Robusta Queue."""
+"""Utility helpers for Queue Max."""
 
 import json
 import os

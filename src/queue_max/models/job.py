@@ -1,4 +1,4 @@
-"""Job data model for the Robusta Queue library.
+"""Job data model for Queue Max.
 
 Represents a task in the queue with full lifecycle tracking,
 including retry logic, error handling, and metadata.
@@ -45,9 +45,7 @@ class JobResult:
     worker_id: Optional[str] = None
     completed_at: Optional[str] = None
 
-def _now_iso() -> str:
-    """Get current UTC timestamp in ISO format."""
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+from queue_max.utils.helpers import now_iso as _now_iso
 
 @dataclass
 class Job:

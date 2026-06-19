@@ -1,4 +1,4 @@
-"""Flask integration for Robusta Queue.
+"""Flask integration for Queue Max.
 
 Provides an extension pattern for easy integration with Flask apps.
 
@@ -30,7 +30,7 @@ logger = logging.getLogger("queue_max.flask")
 
 
 class QueueExtension:
-    """Flask extension for Robusta Queue.
+    """Flask extension for Queue Max.
 
     Provides queue access via app.extensions['queue'] and a @task decorator.
 

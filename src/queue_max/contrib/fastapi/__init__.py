@@ -1,4 +1,4 @@
-"""FastAPI integration for Robusta Queue.
+"""FastAPI integration for Queue Max.
 
 Provides background task processing via dependency injection
 and middleware for automatic queue management.
@@ -61,7 +61,7 @@ class BackgroundQueue:
 
 
 class QueueMiddleware:
-    """FastAPI middleware for Robusta Queue lifecycle management.
+    """FastAPI middleware for Queue Max lifecycle management.
 
     Automatically starts background workers when the app starts
     and gracefully shuts them down on app shutdown.

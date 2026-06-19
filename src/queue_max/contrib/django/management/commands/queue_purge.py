@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand
 class Command(BaseCommand):
     """Remove old jobs from the queue."""
 
-    help = "Remove old jobs from Robusta Queue"
+    help = "Remove old jobs from Queue Max"
 
     def add_arguments(self, parser):
         parser.add_argument("--days", type=int, default=7, help="Age threshold (days)")

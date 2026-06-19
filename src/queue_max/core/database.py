@@ -4,11 +4,13 @@ Each shard is an independent SQLite database file with WAL mode.
 Uses thread-local connections for thread safety.
 """
 
-import json, os, sqlite3, threading, time, traceback
+import json, logging, os, sqlite3, threading, time, traceback
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger("queue_max.database")
 
 from queue_max.models.job import Job, JobStatus
 from queue_max.utils.helpers import backoff_delay, get_env_int, now_iso
@@ -90,6 +92,9 @@ class ShardManager:
         self.vacuum_interval_hours = 24
         self._local = threading.local()
         self._last_vacuum_time: Dict[int, float] = {}
+        self._vacuum_lock = threading.Lock()
+        self._all_connections: set = set()
+        self._connections_lock = threading.Lock()
         os.makedirs(data_dir, exist_ok=True)
         self._init_all_shards()
 
@@ -125,14 +130,38 @@ class ShardManager:
             conn.row_factory = sqlite3.Row
             for p in PRAGMAS_SQL: conn.execute(p)
             self._local.connections[shard_id] = conn
+            with self._connections_lock:
+                self._all_connections.add(conn)
         return self._local.connections[shard_id]
 
     def insert_job(self, shard_id: int, payload: Dict[str, Any], pagina_id: Optional[int] = None, priority: int = 0, max_retries: Optional[int] = None) -> int:
         max_retries = max_retries or get_env_int("QUEUE_MAX_RETRIES", 3)
         conn = self._get_connection(shard_id)
-        cur = conn.execute("INSERT INTO fila (pagina_id, payload, priority, max_tentativas) VALUES (?, ?, ?, ?)", (pagina_id, json.dumps(payload), priority, max_retries))
+        cur = conn.execute("INSERT INTO fila (pagina_id, payload, priority, max_tentativas) VALUES (?, ?, ?, ?)",
+                           (pagina_id, json.dumps(payload), priority, max_retries + 1))
         conn.commit()
         return cur.lastrowid
+
+    def insert_jobs_batch(self, shard_id: int, jobs: List[tuple]) -> int:
+        """Insert multiple jobs into a shard in a single transaction.
+
+        Args:
+            shard_id: Target shard.
+            jobs: List of (payload, pagina_id, priority, max_retries) tuples.
+
+        Returns:
+            Number of rows inserted.
+        """
+        conn = self._get_connection(shard_id)
+        rows = [(json.dumps(p), pid, pri, (mr or get_env_int("QUEUE_MAX_RETRIES", 3)) + 1)
+                for p, pid, pri, mr in jobs]
+        conn.execute("BEGIN IMMEDIATE")
+        conn.executemany(
+            "INSERT INTO fila (payload, pagina_id, priority, max_tentativas) VALUES (?, ?, ?, ?)",
+            rows,
+        )
+        conn.commit()
+        return len(rows)
 
     def pop_job(self, shard_id: int, worker_id: str) -> Optional[Job]:
         conn = self._get_connection(shard_id)
@@ -149,7 +178,8 @@ class ShardManager:
             job = Job.from_row(dict(row), shard_id=shard_id)
             job.status = JobStatus.PROCESSING; job.worker_id = worker_id
             return job
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as e:
+            logger.warning("pop_job shard %d: %s", shard_id, e)
             conn.rollback(); return None
 
     def complete_job(self, shard_id: int, job_id: int) -> None:
@@ -161,30 +191,70 @@ class ShardManager:
 
     def fail_job(self, shard_id: int, job_id: int, error: Exception, permanent: bool = False) -> None:
         now = now_iso()
-        et = type(error).__name__; em = str(error)
+        et = type(error).__name__
+        em = str(error)
         es = "".join(traceback.format_exception(type(error), error, error.__traceback__))
         with self.get_connection(shard_id) as conn:
             if permanent:
                 row = conn.execute("SELECT payload FROM fila WHERE id=?", (job_id,)).fetchone()
                 conn.execute(FAIL_JOB_SQL, (em, et, es, now, job_id))
-                if row: conn.execute(MOVE_TO_DLQ_SQL, (job_id, row["payload"], em, et, shard_id))
+                if row:
+                    conn.execute(MOVE_TO_DLQ_SQL, (job_id, row["payload"], em, et, shard_id))
                 conn.execute(UPDATE_META_FAILED_SQL, (shard_id,))
             else:
-                row = conn.execute("SELECT tentativas, max_tentativas FROM fila WHERE id=?", (job_id,)).fetchone()
+                row = conn.execute(
+                    "SELECT tentativas, max_tentativas FROM fila WHERE id=?", (job_id,)
+                ).fetchone()
                 if row:
                     t = row["tentativas"] + 1
-                    if t >= row["max_tentativas"]:
-                        conn.commit()
-                        return self.fail_job(shard_id, job_id, error, permanent=True)
-                    d = backoff_delay(t)
-                    nr = (datetime.now(timezone.utc) + timedelta(seconds=d)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-                    conn.execute(RETRY_SCHEDULE_SQL, (nr, em, et, es, job_id))
+                    if t > row["max_tentativas"]:
+                        retry_row = conn.execute(
+                            "SELECT payload FROM fila WHERE id=?", (job_id,)
+                        ).fetchone()
+                        conn.execute(FAIL_JOB_SQL, (em, et, es, now, job_id))
+                        if retry_row:
+                            conn.execute(
+                                MOVE_TO_DLQ_SQL,
+                                (job_id, retry_row["payload"], em, et, shard_id),
+                            )
+                        conn.execute(UPDATE_META_FAILED_SQL, (shard_id,))
+                    else:
+                        d = backoff_delay(t)
+                        nr = (
+                            datetime.now(timezone.utc)
+                            + timedelta(seconds=d)
+                        ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+                        conn.execute(RETRY_SCHEDULE_SQL, (nr, em, et, es, job_id))
         conn.commit()
 
     def retry_failed_jobs(self, shard_id: int) -> int:
         conn = self._get_connection(shard_id)
         cur = conn.execute(RETRY_FAILED_SQL, (now_iso(),))
         conn.commit(); return cur.rowcount
+
+    def retry_job(self, shard_id: int, job_id: int) -> bool:
+        """Retry a single failed job by ID.
+
+        Returns:
+            True if the job was found and retried, False otherwise.
+        """
+        conn = self._get_connection(shard_id)
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT id, status FROM fila WHERE id=? AND status='failed'",
+            (job_id,),
+        ).fetchone()
+        if row is None:
+            conn.commit()
+            return False
+        cur = conn.execute(
+            "UPDATE fila SET status='pending', next_retry_at=?, "
+            "worker_id=NULL, heartbeat=NULL, last_error=NULL, "
+            "error_type=NULL, error_stack=NULL WHERE id=?",
+            (now_iso(), job_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
 
     def cleanup_old_jobs(self, shard_id: int, days: int = 7) -> int:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
@@ -194,15 +264,23 @@ class ShardManager:
         conn.commit(); self._maybe_vacuum(shard_id); return cur.rowcount
 
     def _maybe_vacuum(self, shard_id: int) -> None:
-        if self.vacuum_interval_hours <= 0: return
-        now = time.time()
-        if now - self._last_vacuum_time.get(shard_id, 0) >= self.vacuum_interval_hours * 3600:
+        if self.vacuum_interval_hours <= 0:
+            return
+        with self._vacuum_lock:
+            now = time.time()
+            if now - self._last_vacuum_time.get(shard_id, 0) < self.vacuum_interval_hours * 3600:
+                return
             try:
                 conn = self._get_connection(shard_id)
                 conn.execute("VACUUM")
-                conn.execute("UPDATE shard_metadata SET last_vacuum=? WHERE shard_id=?", (now_iso(), shard_id))
-                conn.commit(); self._last_vacuum_time[shard_id] = now
-            except Exception: pass
+                conn.execute(
+                    "UPDATE shard_metadata SET last_vacuum=? WHERE shard_id=?",
+                    (now_iso(), shard_id),
+                )
+                conn.commit()
+                self._last_vacuum_time[shard_id] = now
+            except Exception as e:
+                logger.error("VACUUM failed for shard %d: %s", shard_id, e)
 
     def get_failed_jobs(self, shard_id: int, limit: int = 100) -> List[Job]:
         conn = self._get_connection(shard_id)
@@ -246,8 +324,12 @@ class ShardManager:
         return total
 
     def close_all(self) -> None:
+        with self._connections_lock:
+            for conn in list(self._all_connections):
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            self._all_connections.clear()
         if hasattr(self._local, "connections"):
-            for c in self._local.connections.values():
-                try: c.close()
-                except Exception: pass
             self._local.connections.clear()

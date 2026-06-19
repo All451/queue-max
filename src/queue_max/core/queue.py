@@ -15,7 +15,7 @@ from typing import Any, Callable, Dict, Generator, List, Optional
 from queue_max.core.circuit_breaker import CircuitBreaker
 from queue_max.core.database import DATA_DIR, NUM_SHARDS, ShardManager
 from queue_max.core.rate_limiter import RateLimiter
-from queue_max.exceptions import QueueError
+from queue_max.exceptions import QueueError, RateLimitError
 from queue_max.models.job import Job
 from queue_max.utils.helpers import (
     determine_shard,
@@ -25,6 +25,50 @@ from queue_max.utils.helpers import (
 )
 
 logger = logging.getLogger("queue_max")
+
+
+class ShardGroup:
+    """Groups shards to optimize pop_job scanning.
+
+    Instead of randomly scanning all N shards (O(N) worst case),
+    workers scan groups of shards — checking at most shards_per_group
+    before moving to the next group.
+
+    Group size adapts to the number of shards:
+    - ≤4 shards:  single group (same as flat random scan)
+    -  8 shards:  4 groups of 2
+    - 16 shards:  4 groups of 4
+    - 32 shards:  8 groups of 4
+
+    The adaptive sizing ensures at least 4 groups, keeping contention
+    low when many workers compete for jobs.
+    """
+
+    def __init__(self, num_shards: int):
+        self.num_shards = num_shards
+        # Ensure at least 4 groups to spread workers, but cap group size at 4
+        self.shards_per_group = max(1, min(4, num_shards // 4)) if num_shards >= 8 else num_shards
+        self.groups: List[List[int]] = [
+            list(range(g * self.shards_per_group, min((g + 1) * self.shards_per_group, num_shards)))
+            for g in range((num_shards + self.shards_per_group - 1) // self.shards_per_group)
+        ]
+
+    def randomized_groups(self) -> List[List[int]]:
+        """Return all groups in random order for pop_job scanning."""
+        groups = list(self.groups)
+        random.shuffle(groups)
+        return groups
+
+    def group_for_shard(self, shard_id: int) -> List[int]:
+        """Return the group that contains the given shard ID."""
+        group_idx = shard_id // self.shards_per_group
+        return self.groups[group_idx] if group_idx < len(self.groups) else []
+
+    def __len__(self) -> int:
+        return len(self.groups)
+
+    def __repr__(self) -> str:
+        return f"ShardGroup({self.num_shards} shards, {len(self.groups)} groups of ~{self.shards_per_group})"
 
 class Queue:
     """Main queue for managing and processing jobs.
@@ -46,6 +90,7 @@ class Queue:
         data_dir: Optional[str] = None,
         circuit_breaker_threshold: Optional[int] = None,
         circuit_breaker_timeout: Optional[float] = None,
+        rate_limiter_timeout: float = 5.0,
     ):
         """Initialize the queue.
 
@@ -56,11 +101,13 @@ class Queue:
             data_dir: Directory for shard files (default: DATA_DIR env or ./data).
             circuit_breaker_threshold: Failures before circuit opens (default: 5).
             circuit_breaker_timeout: Seconds before recovery attempt (default: 60).
+            rate_limiter_timeout: Max seconds to wait for rate limit token (default: 5.0).
         """
         self.num_shards = shards or get_env_int("NUM_SHARDS", NUM_SHARDS)
         effective_rate_limit = rate_limit or get_env_int("RATE_LIMIT_MAX", 160)
         self.max_retries = max_retries or get_env_int("QUEUE_MAX_RETRIES", 3)
         self.data_dir = data_dir or os.environ.get("DATA_DIR", DATA_DIR)
+        self.rate_limiter_timeout = rate_limiter_timeout
 
         self.shard_manager = ShardManager(self.num_shards, self.data_dir)
         self.rate_limiter = RateLimiter(effective_rate_limit)
@@ -69,7 +116,8 @@ class Queue:
             recovery_timeout=circuit_breaker_timeout or 60.0,
         )
         self._start_time = time.time()
-        self._pop_lock = threading.Lock()
+        self._shard_locks = [threading.Lock() for _ in range(self.num_shards)]
+        self._shard_groups = ShardGroup(self.num_shards)
 
         self._events: Dict[str, List[Callable]] = {
             "job_enqueued": [],
@@ -78,6 +126,7 @@ class Queue:
             "job_retried": [],
             "alert": [],
         }
+        self._events_lock = threading.Lock()
 
     @property
     def is_healthy(self) -> bool:
@@ -99,12 +148,15 @@ class Queue:
         """
         if event not in self._events:
             raise ValueError(f"Unknown event: {event}. Valid events: {list(self._events.keys())}")
-        self._events[event].append(callback)
+        with self._events_lock:
+            self._events[event].append(callback)
         return self
 
     def _emit(self, event: str, **data: Any) -> None:
         """Emit an event to all registered listeners."""
-        for callback in self._events[event]:
+        with self._events_lock:
+            callbacks = list(self._events[event])
+        for callback in callbacks:
             try:
                 callback(**data)
             except Exception:
@@ -160,6 +212,9 @@ class Queue:
     def enqueue_batch(self, jobs: List[Dict[str, Any]]) -> Dict[str, int]:
         """Enqueue multiple jobs in a batch.
 
+        Groups jobs by shard and inserts them in a single transaction per shard,
+        significantly faster than individual enqueue calls.
+
         Each job dict must contain at least 'payload'.
         Optional keys: 'pagina_id', 'priority', 'max_retries'.
 
@@ -167,15 +222,21 @@ class Queue:
             Dict with 'total' enqueued count.
         """
         total = 0
-        with self.batch():
-            for job in jobs:
-                self.enqueue(
-                    payload=job["payload"],
-                    pagina_id=job.get("pagina_id"),
-                    priority=job.get("priority", 0),
-                    max_retries=job.get("max_retries"),
-                )
-                total += 1
+        batches: Dict[int, list] = {}
+        for job in jobs:
+            payload = validate_payload(job["payload"])
+            priority = validate_priority(job.get("priority", 0))
+            pagina_id = job.get("pagina_id")
+            max_retries = job.get("max_retries") or self.max_retries
+            shard_id = determine_shard(pagina_id, self.num_shards)
+            batches.setdefault(shard_id, []).append(
+                (payload, pagina_id, priority, max_retries)
+            )
+
+        for shard_id, batch in batches.items():
+            count = self.shard_manager.insert_jobs_batch(shard_id, batch)
+            total += count
+
         return {"total": total}
 
     def enqueue_from_file(self, filepath: str, fmt: str = "jsonl") -> Dict[str, int]:
@@ -223,31 +284,47 @@ class Queue:
             A Job if one is available, None if the queue is empty.
         """
         try:
-            self.rate_limiter.acquire()
-        except Exception:
-            return None
-        try:
-            self.circuit_breaker.call(lambda: None)
-        except Exception:
+            self.rate_limiter.acquire(timeout=self.rate_limiter_timeout)
+        except RateLimitError:
             return None
 
-        with self._pop_lock:
-            shard_order = list(range(self.num_shards))
+        if not self.circuit_breaker.is_allowed():
+            return None
+
+        # Fast path: single group = flat random scan (≤4 shards)
+        groups = self._shard_groups.randomized_groups()
+        if len(groups) == 1:
+            shard_order = list(groups[0])
             random.shuffle(shard_order)
-
             for shard_id in shard_order:
-                try:
-                    job = self.shard_manager.pop_job(shard_id, worker_id)
-                    if job is not None:
-                        return job
-                except Exception:
-                    logger.exception(f"Error popping from shard {shard_id}")
-                    continue
+                with self._shard_locks[shard_id]:
+                    try:
+                        job = self.shard_manager.pop_job(shard_id, worker_id)
+                        if job is not None:
+                            return job
+                    except Exception:
+                        logger.exception(f"Error popping from shard {shard_id}")
+                        continue
+            return None
+
+        for group in groups:
+            shards = list(group)
+            random.shuffle(shards)
+            for shard_id in shards:
+                with self._shard_locks[shard_id]:
+                    try:
+                        job = self.shard_manager.pop_job(shard_id, worker_id)
+                        if job is not None:
+                            return job
+                    except Exception:
+                        logger.exception(f"Error popping from shard {shard_id}")
+                        continue
         return None
 
     def complete_job(self, job_id: int, shard_id: int) -> None:
         """Mark a job as completed and remove it from the queue."""
         self.shard_manager.complete_job(shard_id, job_id)
+        self.circuit_breaker.record_success()
         self._emit("job_completed", job_id=job_id, shard_id=shard_id)
 
     def fail_job(
@@ -266,6 +343,7 @@ class Queue:
             permanent: If True, fail immediately without retry.
         """
         self.shard_manager.fail_job(shard_id, job_id, error, permanent=permanent)
+        self.circuit_breaker.record_failure()
         if permanent:
             self._emit("job_failed", job_id=job_id, shard_id=shard_id, error=str(error))
         else:

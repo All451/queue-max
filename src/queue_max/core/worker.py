@@ -10,6 +10,7 @@ import logging
 import threading
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Union
@@ -102,6 +103,10 @@ class Worker:
         self._last_heartbeat_time = 0.0
         self._heartbeat_interval = get_env_int("HEARTBEAT_INTERVAL", 5000) / 1000.0
         self._start_time: Optional[float] = None
+        self._last_job_shard_id: Optional[int] = None
+        self._executor = (
+            ThreadPoolExecutor(max_workers=1) if job_timeout else None
+        )
 
     @property
     def state(self) -> str:
@@ -143,6 +148,8 @@ class Worker:
             self._thread.join(timeout=timeout)
             self._state = WorkerState.STOPPED if not self._thread.is_alive() else WorkerState.ERROR
         self._stats.stopped_at = now_iso()
+        if self._executor:
+            self._executor.shutdown(wait=False)
         logger.info(f"Worker {self.worker_id} stopped ({self._state.value})")
 
     def _run_loop(self) -> None:
@@ -168,6 +175,8 @@ class Worker:
             self._current_job = job
             self._current_job_start = start_time
             self._stats.current_job_id = job.id
+
+        self._last_job_shard_id = job.shard_id
 
         if self.on_job_start:
             try:
@@ -210,14 +219,13 @@ class Worker:
 
     def _execute_with_timeout(self, payload: Dict) -> Any:
         """Execute function with job_timeout using ThreadPoolExecutor."""
-        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+        from concurrent.futures import TimeoutError as FuturesTimeoutError
 
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(self.process_function, payload)
-            try:
-                return future.result(timeout=self.job_timeout)
-            except FuturesTimeoutError:
-                raise TimeoutError(f"Job exceeded {self.job_timeout}s timeout")
+        future = self._executor.submit(self.process_function, payload)
+        try:
+            return future.result(timeout=self.job_timeout)
+        except FuturesTimeoutError:
+            raise TimeoutError(f"Job exceeded {self.job_timeout}s timeout")
 
     def _idle_wait(self) -> None:
         self._stop_event.wait(timeout=self.poll_interval)
@@ -226,7 +234,8 @@ class Worker:
         now = time.monotonic()
         if now - self._last_heartbeat_time >= self._heartbeat_interval:
             try:
-                for sid in range(self.queue.num_shards):
+                sid = self._last_job_shard_id
+                if sid is not None:
                     self.queue.heartbeat(sid, self.worker_id)
                 self._last_heartbeat_time = now
                 self._stats.last_heartbeat_at = now_iso()
@@ -283,6 +292,7 @@ class AsyncWorker(Worker):
 
     async def _process_async(self, job: Any) -> None:
         start_time = time.monotonic()
+        self._last_job_shard_id = job.shard_id
         try:
             if asyncio.iscoroutinefunction(self.process_function):
                 result = await self.process_function(job.payload)

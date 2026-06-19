@@ -1,4 +1,4 @@
-"""Data models for Robusta Queue."""
+"""Data models for Queue Max."""
 
 from queue_max.models.job import Job, JobPriority, JobResult, JobStatus
 
