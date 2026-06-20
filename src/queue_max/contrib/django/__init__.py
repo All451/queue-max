@@ -26,7 +26,7 @@ Usage:
         # send email
 """
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Optional
 
 from queue_max import Queue as BaseQueue
 from queue_max import task as base_task

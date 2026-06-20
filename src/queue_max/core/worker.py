@@ -13,7 +13,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Optional
 
 from queue_max.core.queue import Queue
 from queue_max.utils.helpers import get_env_int, is_retryable_error, now_iso
@@ -64,7 +64,7 @@ class Worker:
     def __init__(
         self,
         worker_id: str,
-        process_function: Callable[[Dict[str, Any]], Any],
+        process_function: Callable[[dict[str, Any]], Any],
         queue: Optional[Queue] = None,
         on_job_start: Optional[Callable] = None,
         on_job_complete: Optional[Callable] = None,
@@ -119,7 +119,7 @@ class Worker:
     def start(self) -> None:
         """Start the worker in a background thread."""
         if self._state in (WorkerState.RUNNING, WorkerState.STARTING):
-            logger.warning(f"Worker {self.worker_id} is already {self._state.value}")
+            logger.warning("Worker %s is already %s", self.worker_id, self._state.value)
             return
         self._state = WorkerState.STARTING
         self._start_time = time.monotonic()
@@ -132,7 +132,7 @@ class Worker:
         )
         self._thread.start()
         self._state = WorkerState.RUNNING
-        logger.info(f"Worker {self.worker_id} started")
+        logger.info("Worker %s started", self.worker_id)
 
     def stop(self, timeout: float = 10.0) -> None:
         """Gracefully stop the worker.
@@ -150,7 +150,7 @@ class Worker:
         self._stats.stopped_at = now_iso()
         if self._executor:
             self._executor.shutdown(wait=False)
-        logger.info(f"Worker {self.worker_id} stopped ({self._state.value})")
+        logger.info("Worker %s stopped (%s)", self.worker_id, self._state.value)
 
     def _run_loop(self) -> None:
         """Main worker processing loop."""
@@ -158,7 +158,7 @@ class Worker:
             try:
                 job = self.queue.pop_job(self.worker_id)
             except Exception as e:
-                logger.exception(f"Worker {self.worker_id}: pop error: {e}")
+                logger.exception("Worker %s: pop error: %s", self.worker_id, e)
                 self._stats.last_error = str(e)
                 self._idle_wait()
                 continue
@@ -182,7 +182,7 @@ class Worker:
             try:
                 self.on_job_start(worker_id=self.worker_id, job_id=job.id, payload=job.payload)
             except Exception as e:
-                logger.error(f"Worker {self.worker_id}: on_job_start error: {e}")
+                logger.error("Worker %s: on_job_start error: %s", self.worker_id, e)
 
         try:
             if self.job_timeout:
@@ -196,7 +196,7 @@ class Worker:
                 try:
                     self.on_job_complete(worker_id=self.worker_id, job_id=job.id, result=result)
                 except Exception as e:
-                    logger.error(f"Worker {self.worker_id}: on_job_complete error: {e}")
+                    logger.error("Worker %s: on_job_complete error: %s", self.worker_id, e)
         except Exception as e:
             permanent = not is_retryable_error(e)
             self.queue.fail_job(job.id, job.shard_id, e, permanent=permanent)
@@ -210,14 +210,14 @@ class Worker:
                 try:
                     self.on_job_error(worker_id=self.worker_id, job_id=job.id, error=str(e), permanent=permanent)
                 except Exception as cb_err:
-                    logger.error(f"Worker {self.worker_id}: on_job_error error: {cb_err}")
+                    logger.error("Worker %s: on_job_error error: %s", self.worker_id, cb_err)
         finally:
             with self._job_mutex:
                 self._current_job = None
                 self._current_job_start = None
                 self._stats.current_job_id = None
 
-    def _execute_with_timeout(self, payload: Dict) -> Any:
+    def _execute_with_timeout(self, payload: dict) -> Any:
         """Execute function with job_timeout using ThreadPoolExecutor."""
         from concurrent.futures import TimeoutError as FuturesTimeoutError
 
@@ -240,13 +240,13 @@ class Worker:
                 self._last_heartbeat_time = now
                 self._stats.last_heartbeat_at = now_iso()
             except Exception as e:
-                logger.exception(f"Worker {self.worker_id}: heartbeat error: {e}")
+                logger.exception("Worker %s: heartbeat error: %s", self.worker_id, e)
 
     def get_current_job(self) -> Optional[Any]:
         with self._job_mutex:
             return self._current_job
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         runtime_hours = self._stats.total_runtime_seconds / 3600
         processed = self._stats.processed
         throughput = round(processed / runtime_hours, 2) if runtime_hours > 0 else 0.0
@@ -276,19 +276,24 @@ class AsyncWorker(Worker):
     def _run_loop(self) -> None:
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
-        while not self._stop_event.is_set():
-            try:
-                job = self.queue.pop_job(self.worker_id)
-            except Exception as e:
-                logger.exception(f"AsyncWorker {self.worker_id}: pop error: {e}")
-                self._stats.last_error = str(e)
-                time.sleep(self.poll_interval)
-                continue
-            if job is None:
-                self._idle_wait()
-                continue
-            self._loop.run_until_complete(self._process_async(job))
-            self._send_heartbeat()
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    job = self.queue.pop_job(self.worker_id)
+                except Exception as e:
+                    logger.exception("AsyncWorker %s: pop error: %s", self.worker_id, e)
+                    self._stats.last_error = str(e)
+                    time.sleep(self.poll_interval)
+                    continue
+                if job is None:
+                    self._idle_wait()
+                    continue
+                self._loop.run_until_complete(self._process_async(job))
+                self._send_heartbeat()
+        finally:
+            self._loop.run_until_complete(self._loop.shutdown_asyncgens())
+            self._loop.close()
+            self._loop = None
 
     async def _process_async(self, job: Any) -> None:
         start_time = time.monotonic()
@@ -318,12 +323,12 @@ class WorkerPool:
     Supports auto-scaling based on queue depth.
 
     Attributes:
-        workers: List of Worker instances.
+        workers: list of Worker instances.
     """
 
     def __init__(
         self,
-        workers: Optional[List[Worker]] = None,
+        workers: Optional[list[Worker]] = None,
         auto_scale: bool = False,
         min_workers: int = 1,
         max_workers: int = 10,
@@ -331,7 +336,7 @@ class WorkerPool:
         scale_down_threshold: int = 10,
         scale_check_interval: float = 60.0,
     ):
-        self.workers: List[Worker] = workers or []
+        self.workers: list[Worker] = workers or []
         self.auto_scale = auto_scale
         self.min_workers = min_workers
         self.max_workers = max_workers
@@ -376,7 +381,7 @@ class WorkerPool:
             try:
                 self._check_and_scale()
             except Exception as e:
-                logger.error(f"Auto-scaling error: {e}")
+                logger.error("Auto-scaling error: %s", e)
             self._stop_scale.wait(timeout=self.scale_check_interval)
 
     def _check_and_scale(self) -> None:
@@ -393,7 +398,7 @@ class WorkerPool:
     def _scale_to(self, target: int, reason: str) -> None:
         if target == len(self.workers):
             return
-        logger.info(f"Scaling workers {len(self.workers)} -> {target}: {reason}")
+        logger.info("Scaling workers %d -> %d: %s", len(self.workers), target, reason)
         if target > len(self.workers):
             for i in range(len(self.workers), target):
                 w = Worker(
@@ -408,7 +413,7 @@ class WorkerPool:
                 w.stop()
             self.workers = self.workers[:target]
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         per_worker = [w.get_stats() for w in self.workers]
         return {
             "workers": per_worker,

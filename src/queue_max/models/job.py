@@ -9,7 +9,7 @@ import traceback
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 from uuid import uuid4
 
 class JobStatus(Enum):
@@ -70,7 +70,7 @@ class Job:
         completed_at: When job completed/failed (ISO UTC).
         next_retry_at: Scheduled next retry timestamp (ISO UTC).
         shard_id: Shard this job belongs to.
-        tags: List of tags for categorization.
+        tags: list of tags for categorization.
         metadata: Additional metadata dictionary.
         parent_job_id: Optional parent job ID for dependency chains.
         timeout_seconds: Maximum execution time in seconds.
@@ -78,7 +78,7 @@ class Job:
     """
 
     id: int
-    payload: Dict[str, Any]
+    payload: dict[str, Any]
     pagina_id: Optional[int] = None
     status: Union[JobStatus, str] = JobStatus.PENDING
     priority: Union[JobPriority, int] = JobPriority.MEDIUM
@@ -95,8 +95,8 @@ class Job:
     completed_at: Optional[str] = None
     next_retry_at: Optional[str] = None
     shard_id: int = 0
-    tags: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    tags: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
     parent_job_id: Optional[int] = None
     timeout_seconds: Optional[int] = None
     progress: float = 0.0
@@ -227,7 +227,7 @@ class Job:
         next_retry = datetime.now(timezone.utc) + timedelta(seconds=delay)
         self.next_retry_at = next_retry.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert job to a dictionary for serialization."""
         return {
             "id": self.id,
@@ -310,13 +310,13 @@ class Job:
     @classmethod
     def create(
         cls,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         pagina_id: Optional[int] = None,
         priority: Union[JobPriority, int] = JobPriority.MEDIUM,
         max_retries: int = 3,
         retry_delay: int = 60,
-        tags: Optional[List[str]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        tags: Optional[list[str]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         parent_job_id: Optional[int] = None,
         timeout_seconds: Optional[int] = None,
     ) -> "Job":

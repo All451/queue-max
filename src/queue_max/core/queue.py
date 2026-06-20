@@ -4,13 +4,15 @@ Provides the primary API for enqueuing, processing, and managing jobs
 with support for sharding, rate limiting, circuit breaker, and monitoring.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import random
 import threading
 import time
 from contextlib import contextmanager
-from typing import Any, Callable, Dict, Generator, List, Optional
+from typing import Any, Callable, Generator, Optional
 
 from queue_max.core.circuit_breaker import CircuitBreaker
 from queue_max.core.database import DATA_DIR, NUM_SHARDS, ShardManager
@@ -48,18 +50,18 @@ class ShardGroup:
         self.num_shards = num_shards
         # Ensure at least 4 groups to spread workers, but cap group size at 4
         self.shards_per_group = max(1, min(4, num_shards // 4)) if num_shards >= 8 else num_shards
-        self.groups: List[List[int]] = [
+        self.groups: list[list[int]] = [
             list(range(g * self.shards_per_group, min((g + 1) * self.shards_per_group, num_shards)))
             for g in range((num_shards + self.shards_per_group - 1) // self.shards_per_group)
         ]
 
-    def randomized_groups(self) -> List[List[int]]:
+    def randomized_groups(self) -> list[list[int]]:
         """Return all groups in random order for pop_job scanning."""
         groups = list(self.groups)
         random.shuffle(groups)
         return groups
 
-    def group_for_shard(self, shard_id: int) -> List[int]:
+    def group_for_shard(self, shard_id: int) -> list[int]:
         """Return the group that contains the given shard ID."""
         group_idx = shard_id // self.shards_per_group
         return self.groups[group_idx] if group_idx < len(self.groups) else []
@@ -119,7 +121,7 @@ class Queue:
         self._shard_locks = [threading.Lock() for _ in range(self.num_shards)]
         self._shard_groups = ShardGroup(self.num_shards)
 
-        self._events: Dict[str, List[Callable]] = {
+        self._events: dict[str, list[Callable]] = {
             "job_enqueued": [],
             "job_completed": [],
             "job_failed": [],
@@ -160,25 +162,33 @@ class Queue:
             try:
                 callback(**data)
             except Exception:
-                logger.exception(f"Error in event handler for {event}")
+                logger.exception("Error in event handler for %s", event)
 
     @contextmanager
     def batch(self) -> Generator[None, None, None]:
         """Context manager for batch operations (disables events temporarily)."""
-        original_emit = self._emit
-        self._emit = lambda event, **data: None
+        with self._events_lock:
+            if not hasattr(self, "_batch_depth"):
+                self._batch_depth = 0
+            self._batch_depth += 1
+            if self._batch_depth == 1:
+                self._original_emit = self._emit
+                self._emit = lambda event, **data: None
         try:
             yield
         finally:
-            self._emit = original_emit
+            with self._events_lock:
+                self._batch_depth -= 1
+                if self._batch_depth == 0:
+                    self._emit = self._original_emit
 
     def enqueue(
         self,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         pagina_id: Optional[int] = None,
         priority: int = 0,
         max_retries: Optional[int] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Enqueue a job.
 
         Args:
@@ -188,7 +198,7 @@ class Queue:
             max_retries: Maximum retry attempts (default: instance default).
 
         Returns:
-            Dict with 'id' (job ID) and 'shard_id' (assigned shard).
+            dict with 'id' (job ID) and 'shard_id' (assigned shard).
 
         Raises:
             ValueError: If payload is not a dict or priority is invalid.
@@ -209,7 +219,7 @@ class Queue:
 
         return {"id": job_id, "shard_id": shard_id}
 
-    def enqueue_batch(self, jobs: List[Dict[str, Any]]) -> Dict[str, int]:
+    def enqueue_batch(self, jobs: list[dict[str, Any]]) -> dict[str, int]:
         """Enqueue multiple jobs in a batch.
 
         Groups jobs by shard and inserts them in a single transaction per shard,
@@ -219,10 +229,10 @@ class Queue:
         Optional keys: 'pagina_id', 'priority', 'max_retries'.
 
         Returns:
-            Dict with 'total' enqueued count.
+            dict with 'total' enqueued count.
         """
         total = 0
-        batches: Dict[int, list] = {}
+        batches: dict[int, list] = {}
         for job in jobs:
             payload = validate_payload(job["payload"])
             priority = validate_priority(job.get("priority", 0))
@@ -239,7 +249,7 @@ class Queue:
 
         return {"total": total}
 
-    def enqueue_from_file(self, filepath: str, fmt: str = "jsonl") -> Dict[str, int]:
+    def enqueue_from_file(self, filepath: str, fmt: str = "jsonl") -> dict[str, int]:
         """Enqueue jobs from a file (JSON Lines format).
 
         Args:
@@ -247,7 +257,7 @@ class Queue:
             fmt: File format ('jsonl' or 'csv').
 
         Returns:
-            Dict with 'total' enqueued count.
+            dict with 'total' enqueued count.
         """
         import csv
         import json
@@ -263,7 +273,7 @@ class Queue:
                         total += 1
         elif fmt == "csv":
             with open(filepath) as f:
-                for row in csv.DictReader(f):
+                for row in csv.dictReader(f):
                     payload = {k: v for k, v in row.items() if k != "priority"}
                     priority = int(row.get("priority", 0))
                     self.enqueue(payload=payload, priority=priority)
@@ -303,7 +313,7 @@ class Queue:
                         if job is not None:
                             return job
                     except Exception:
-                        logger.exception(f"Error popping from shard {shard_id}")
+                        logger.exception("Error popping from shard %d", shard_id)
                         continue
             return None
 
@@ -317,7 +327,7 @@ class Queue:
                         if job is not None:
                             return job
                     except Exception:
-                        logger.exception(f"Error popping from shard {shard_id}")
+                        logger.exception("Error popping from shard %d", shard_id)
                         continue
         return None
 
@@ -391,26 +401,26 @@ class Queue:
         """
         total = 0
         for shard_id in range(self.num_shards):
-            conn = self.shard_manager._get_connection(shard_id)
-            if status:
-                cursor = conn.execute("DELETE FROM fila WHERE status=?", (status,))
-            else:
-                cursor = conn.execute("DELETE FROM fila")
-            total += cursor.rowcount
-            conn.commit()
+            with self.shard_manager.get_connection(shard_id) as conn:
+                if status:
+                    cursor = conn.execute("DELETE FROM fila WHERE status=?", (status,))
+                else:
+                    cursor = conn.execute("DELETE FROM fila")
+                total += cursor.rowcount
+                conn.commit()
         return total
 
-    def get_failed_jobs(self, limit: int = 100) -> List[Job]:
+    def get_failed_jobs(self, limit: int = 100) -> list[Job]:
         """Get all failed jobs across all shards."""
-        jobs: List[Job] = []
+        jobs: list[Job] = []
         for shard_id in range(self.num_shards):
             jobs.extend(self.shard_manager.get_failed_jobs(shard_id, limit))
         jobs.sort(key=lambda j: j.id, reverse=True)
         return jobs
 
-    def get_processing_jobs(self) -> List[Job]:
+    def get_processing_jobs(self) -> list[Job]:
         """Get all currently processing jobs."""
-        jobs: List[Job] = []
+        jobs: list[Job] = []
         for shard_id in range(self.num_shards):
             jobs.extend(self.shard_manager.get_processing_jobs(shard_id))
         return jobs
@@ -439,11 +449,11 @@ class Queue:
             total += self.shard_manager.recover_orphans(shard_id, stuck_timeout)
         return total
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get comprehensive queue statistics.
 
         Returns:
-            Dict with pending, processing, failed, and configuration stats.
+            dict with pending, processing, failed, and configuration stats.
         """
         shard_stats = self.shard_manager.get_all_stats()
         rate_stats = self.rate_limiter.get_stats()

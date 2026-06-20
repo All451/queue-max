@@ -8,7 +8,7 @@ import json, logging, os, sqlite3, threading, time, traceback
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 logger = logging.getLogger("queue_max.database")
 
@@ -91,7 +91,7 @@ class ShardManager:
         self.data_dir = data_dir
         self.vacuum_interval_hours = 24
         self._local = threading.local()
-        self._last_vacuum_time: Dict[int, float] = {}
+        self._last_vacuum_time: dict[int, float] = {}
         self._vacuum_lock = threading.Lock()
         self._all_connections: set = set()
         self._connections_lock = threading.Lock()
@@ -134,7 +134,7 @@ class ShardManager:
                 self._all_connections.add(conn)
         return self._local.connections[shard_id]
 
-    def insert_job(self, shard_id: int, payload: Dict[str, Any], pagina_id: Optional[int] = None, priority: int = 0, max_retries: Optional[int] = None) -> int:
+    def insert_job(self, shard_id: int, payload: dict[str, Any], pagina_id: Optional[int] = None, priority: int = 0, max_retries: Optional[int] = None) -> int:
         max_retries = max_retries or get_env_int("QUEUE_MAX_RETRIES", 3)
         conn = self._get_connection(shard_id)
         cur = conn.execute("INSERT INTO fila (pagina_id, payload, priority, max_tentativas) VALUES (?, ?, ?, ?)",
@@ -142,12 +142,12 @@ class ShardManager:
         conn.commit()
         return cur.lastrowid
 
-    def insert_jobs_batch(self, shard_id: int, jobs: List[tuple]) -> int:
+    def insert_jobs_batch(self, shard_id: int, jobs: list[tuple]) -> int:
         """Insert multiple jobs into a shard in a single transaction.
 
         Args:
             shard_id: Target shard.
-            jobs: List of (payload, pagina_id, priority, max_retries) tuples.
+            jobs: list of (payload, pagina_id, priority, max_retries) tuples.
 
         Returns:
             Number of rows inserted.
@@ -225,7 +225,7 @@ class ShardManager:
                             + timedelta(seconds=d)
                         ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
                         conn.execute(RETRY_SCHEDULE_SQL, (nr, em, et, es, job_id))
-        conn.commit()
+            conn.commit()
 
     def retry_failed_jobs(self, shard_id: int) -> int:
         conn = self._get_connection(shard_id)
@@ -282,15 +282,15 @@ class ShardManager:
             except Exception as e:
                 logger.error("VACUUM failed for shard %d: %s", shard_id, e)
 
-    def get_failed_jobs(self, shard_id: int, limit: int = 100) -> List[Job]:
+    def get_failed_jobs(self, shard_id: int, limit: int = 100) -> list[Job]:
         conn = self._get_connection(shard_id)
         return [Job.from_row(dict(r), shard_id=shard_id) for r in conn.execute("SELECT * FROM fila WHERE status='failed' ORDER BY id DESC LIMIT ?", (limit,)).fetchall()]
 
-    def get_dead_letter_queue(self, shard_id: int, limit: int = 100) -> List[Dict]:
+    def get_dead_letter_queue(self, shard_id: int, limit: int = 100) -> list[dict]:
         conn = self._get_connection(shard_id)
         return [dict(r) for r in conn.execute("SELECT * FROM dead_letter_queue ORDER BY failed_at DESC LIMIT ?", (limit,)).fetchall()]
 
-    def get_processing_jobs(self, shard_id: int) -> List[Job]:
+    def get_processing_jobs(self, shard_id: int) -> list[Job]:
         conn = self._get_connection(shard_id)
         return [Job.from_row(dict(r), shard_id=shard_id) for r in conn.execute("SELECT * FROM fila WHERE status='processing' ORDER BY id ASC").fetchall()]
 
@@ -313,11 +313,11 @@ class ShardManager:
         except Exception as e:
             return ShardMetrics(shard_id=shard_id, is_healthy=False, last_error=str(e))
 
-    def get_stats(self, shard_id: int) -> Dict[str, int]:
+    def get_stats(self, shard_id: int) -> dict[str, int]:
         m = self.get_metrics(shard_id); return {"pending": m.pending, "processing": m.processing, "failed": m.failed}
 
-    def get_all_stats(self) -> Dict[str, int]:
-        total: Dict[str, int] = {"pending": 0, "processing": 0, "failed": 0}
+    def get_all_stats(self) -> dict[str, int]:
+        total: dict[str, int] = {"pending": 0, "processing": 0, "failed": 0}
         for sid in range(self.num_shards):
             s = self.get_stats(sid)
             for k in total: total[k] += s[k]

@@ -17,7 +17,7 @@ Usage:
 """
 
 import logging
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Optional
 
 from queue_max import Queue, Worker
 
@@ -37,10 +37,10 @@ class BackgroundQueue:
     def enqueue(
         self,
         task_name: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         pagina_id: Optional[int] = None,
         priority: int = 0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Enqueue a background task.
 
         Args:
@@ -50,7 +50,7 @@ class BackgroundQueue:
             priority: Task priority (0, 1, 2).
 
         Returns:
-            Dict with 'id' and 'shard_id'.
+            dict with 'id' and 'shard_id'.
         """
         full_payload = {"task": task_name, **payload}
         return self._queue.enqueue(
@@ -104,7 +104,7 @@ class QueueMiddleware:
         ]
         self._pool = WorkerPool(workers)
         self._pool.start_all()
-        logger.info(f"Started {self.max_workers} FastAPI worker(s)")
+        logger.info("Started %d FastAPI worker(s)", self.max_workers)
 
     def _stop_workers(self) -> None:
         """Stop background workers gracefully."""

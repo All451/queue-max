@@ -16,7 +16,7 @@ import inspect
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Optional
 
 from queue_max.core.queue import Queue
 
@@ -118,11 +118,11 @@ def task(
                         logger.error("on_failure callback failed: %s", cb_err)
                 raise
 
-        def delay(*args, **kwargs) -> Dict[str, Any]:
+        def delay(*args, **kwargs) -> dict[str, Any]:
             """Enqueue the function for background processing.
 
             Returns:
-                Dict with 'id' (job ID) and 'shard_id' (assigned shard).
+                dict with 'id' (job ID) and 'shard_id' (assigned shard).
             """
             try:
                 sig.bind(*args, **kwargs)
@@ -149,7 +149,7 @@ def task(
                 max_retries=max_retries,
             )
 
-        def schedule_at(when: Union[datetime, str], *args, **kwargs) -> Dict[str, Any]:
+        def schedule_at(when: Union[datetime, str], *args, **kwargs) -> dict[str, Any]:
             """Schedule task to run at a specific time.
 
             Args:
@@ -158,7 +158,7 @@ def task(
                 **kwargs: Keyword arguments for the task.
 
             Returns:
-                Dict with job id and shard id.
+                dict with job id and shard id.
             """
             if isinstance(when, str):
                 when = datetime.fromisoformat(when)
@@ -172,7 +172,7 @@ def task(
             delay_seconds = (when - now).total_seconds()
             return schedule_in(delay_seconds, *args, **kwargs)
 
-        def schedule_in(seconds: float, *args, **kwargs) -> Dict[str, Any]:
+        def schedule_in(seconds: float, *args, **kwargs) -> dict[str, Any]:
             """Schedule task to run after N seconds.
 
             Args:
@@ -181,7 +181,7 @@ def task(
                 **kwargs: Keyword arguments for the task.
 
             Returns:
-                Dict with job id and shard id.
+                dict with job id and shard id.
             """
             scheduled = (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
             payload = {
@@ -201,33 +201,33 @@ def task(
             logger.info("Task %s scheduled at %s (job %s)", task_name, scheduled, result["id"])
             return result
 
-        def map(items: List[Any], *args, **kwargs) -> List[Dict[str, Any]]:
+        def map(items: list[Any], *args, **kwargs) -> list[dict[str, Any]]:
             """Enqueue multiple items for parallel processing.
 
             Each item in the list becomes the first positional argument.
 
             Args:
-                items: List of items to process.
+                items: list of items to process.
                 *args: Additional positional arguments.
                 **kwargs: Keyword arguments.
 
             Returns:
-                List of job result dicts.
+                list of job result dicts.
             """
             return [delay(item, *args, **kwargs) for item in items]
 
-        def bulk_delay(arg_list: List[Tuple[tuple, dict]]) -> List[Dict[str, Any]]:
+        def bulk_delay(arg_list: list[Tuple[tuple, dict]]) -> list[dict[str, Any]]:
             """Enqueue multiple calls with different arguments.
 
             Args:
-                arg_list: List of (args, kwargs) tuples.
+                arg_list: list of (args, kwargs) tuples.
 
             Returns:
-                List of job result dicts.
+                list of job result dicts.
             """
             return [delay(*a, **kw) for a, kw in arg_list]
 
-        def get_task_stats() -> Dict[str, Any]:
+        def get_task_stats() -> dict[str, Any]:
             """Get statistics for this task."""
             return {
                 "task_name": task_name,
@@ -300,14 +300,14 @@ def periodic_task(interval: int, **task_kwargs) -> Callable:
 
 def retryable_task(
     max_retries: int = 5,
-    retry_on: Optional[List[Exception]] = None,
+    retry_on: Optional[list[Exception]] = None,
     **task_kwargs,
 ) -> Callable:
     """Decorator for tasks that should retry synchronously on specific exceptions.
 
     Args:
         max_retries: Max retry attempts.
-        retry_on: List of exception types to retry on (default: all).
+        retry_on: list of exception types to retry on (default: all).
         **task_kwargs: Arguments passed through to @task.
 
     Returns:

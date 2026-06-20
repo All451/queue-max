@@ -10,14 +10,14 @@ import json
 import logging
 import os
 import sys
-from typing import Any, Dict, List
+from typing import Any
 
 from queue_max import Queue, Worker, WorkerPool
 
 logger = logging.getLogger("queue_max")
 
 
-def _format_table(headers: List[str], rows: List[List[Any]]) -> str:
+def _format_table(headers: list[str], rows: list[list[Any]]) -> str:
     """Format data as a simple ASCII table."""
     col_widths = [len(h) for h in headers]
     for row in rows:
@@ -203,7 +203,7 @@ def cmd_list(args: argparse.Namespace) -> None:
     )
 
     status = args.status
-    jobs_list: List[Dict[str, Any]] = []
+    jobs_list: list[dict[str, Any]] = []
 
     if status in ("all", "failed"):
         for job in queue.get_failed_jobs(limit=args.limit):
@@ -313,7 +313,7 @@ def build_parser() -> argparse.ArgumentParser:
     retry_parser.add_argument("--job-id", type=int, default=None, help="Specific job ID")
 
     # list
-    list_parser = subparsers.add_parser("list", help="List jobs")
+    list_parser = subparsers.add_parser("list", help="list jobs")
     list_parser.add_argument(
         "--status",
         choices=["pending", "processing", "failed", "all"],
@@ -325,7 +325,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: List[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Main entry point for the Queue Max CLI.
 
     Args:

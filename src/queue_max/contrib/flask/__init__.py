@@ -21,7 +21,7 @@ Usage:
 """
 
 import logging
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Optional
 
 from queue_max import Queue as BaseQueue
 from queue_max import task as base_task
@@ -94,6 +94,6 @@ class QueueExtension:
             return base_task(queue=self.queue, priority=priority, max_retries=max_retries)(func)
         return base_task(queue=self.queue, priority=priority, max_retries=max_retries)
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get queue statistics."""
         return self.queue.get_stats()

@@ -15,7 +15,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, Optional
+from typing import Optional
 
 from queue_max.exceptions import RateLimitError
 
@@ -193,7 +193,7 @@ class RateLimiter:
                 tps = self.rate_limit / 60.0
             return (1 - self._tokens) / tps if tps > 0 else self.interval
 
-    def get_stats(self) -> Dict[str, float]:
+    def get_stats(self) -> dict[str, float]:
         """Get current rate limiter statistics."""
         with self._mutex:
             now = time.monotonic()

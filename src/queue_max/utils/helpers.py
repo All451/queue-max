@@ -4,7 +4,7 @@ import json
 import os
 import random
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 
 def now_iso() -> str:
@@ -22,7 +22,7 @@ def parse_iso(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
-def validate_payload(payload: Any) -> Dict[str, Any]:
+def validate_payload(payload: Any) -> dict[str, Any]:
     """Validate and sanitize a job payload.
 
     Args:

@@ -274,7 +274,7 @@ class QueueEventBus:
         """Return event dispatch metrics.
 
         Returns:
-            Dict with total_dispatched, total_errors, by_type (count per event
+            dict with total_dispatched, total_errors, by_type (count per event
             class name), and last_event_time (unix timestamp or None).
         """
         with self._metrics_lock:
@@ -303,8 +303,8 @@ class QueueEventBus:
                 )
                 future.result(timeout=5)
                 self._loop.call_soon_threadsafe(self._loop.stop)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Error shutting down event loop: %s", e)
 
         if self._thread.is_alive():
             self._thread.join(timeout=5)
