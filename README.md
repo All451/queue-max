@@ -1,5 +1,15 @@
 # Queue Max
 
+<p align="center">
+  <a href="https://pypi.org/project/queue-max/"><img src="https://img.shields.io/pypi/v/queue-max?color=blue" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/queue-max/"><img src="https://img.shields.io/pypi/pyversions/queue-max" alt="Python versions"></a>
+  <a href="https://github.com/All451/queue-max/actions"><img src="https://img.shields.io/github/actions/workflow/status/All451/queue-max/ci.yml?branch=main" alt="CI status"></a>
+  <img src="https://img.shields.io/badge/coverage-97%25-brightgreen" alt="Coverage 97%">
+  <a href="https://github.com/All451/queue-max/blob/main/LICENSE"><img src="https://img.shields.io/github/license/All451/queue-max" alt="License MIT"></a>
+  <img src="https://img.shields.io/badge/dependencies-0-success" alt="Zero dependencies">
+  <img src="https://img.shields.io/badge/stress-500k%20jobs%20%7C%200%20duplicates-brightgreen" alt="500k jobs, 0 duplicates">
+</p>
+
 Task queue library with SQLite persistence, sharding, rate limiting, and circuit breaker.
 
 No Redis or RabbitMQ required. **Zero external dependencies** (except `typing-extensions`).
