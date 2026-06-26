@@ -15,7 +15,8 @@ from contextlib import contextmanager
 from typing import Any, Callable, Generator, Optional
 
 from queue_max.core.circuit_breaker import CircuitBreaker
-from queue_max.core.database import DATA_DIR, NUM_SHARDS, ShardManager
+from queue_max.core.db.manager import DATA_DIR, NUM_SHARDS, ShardManager
+from queue_max.core.db.shard_group import ShardGroup
 from queue_max.core.rate_limiter import RateLimiter
 from queue_max.exceptions import QueueError, RateLimitError
 from queue_max.models.job import Job
@@ -28,49 +29,6 @@ from queue_max.utils.helpers import (
 
 logger = logging.getLogger("queue_max")
 
-
-class ShardGroup:
-    """Groups shards to optimize pop_job scanning.
-
-    Instead of randomly scanning all N shards (O(N) worst case),
-    workers scan groups of shards — checking at most shards_per_group
-    before moving to the next group.
-
-    Group size adapts to the number of shards:
-    - ≤4 shards:  single group (same as flat random scan)
-    -  8 shards:  4 groups of 2
-    - 16 shards:  4 groups of 4
-    - 32 shards:  8 groups of 4
-
-    The adaptive sizing ensures at least 4 groups, keeping contention
-    low when many workers compete for jobs.
-    """
-
-    def __init__(self, num_shards: int):
-        self.num_shards = num_shards
-        # Ensure at least 4 groups to spread workers, but cap group size at 4
-        self.shards_per_group = max(1, min(4, num_shards // 4)) if num_shards >= 8 else num_shards
-        self.groups: list[list[int]] = [
-            list(range(g * self.shards_per_group, min((g + 1) * self.shards_per_group, num_shards)))
-            for g in range((num_shards + self.shards_per_group - 1) // self.shards_per_group)
-        ]
-
-    def randomized_groups(self) -> list[list[int]]:
-        """Return all groups in random order for pop_job scanning."""
-        groups = list(self.groups)
-        random.shuffle(groups)
-        return groups
-
-    def group_for_shard(self, shard_id: int) -> list[int]:
-        """Return the group that contains the given shard ID."""
-        group_idx = shard_id // self.shards_per_group
-        return self.groups[group_idx] if group_idx < len(self.groups) else []
-
-    def __len__(self) -> int:
-        return len(self.groups)
-
-    def __repr__(self) -> str:
-        return f"ShardGroup({self.num_shards} shards, {len(self.groups)} groups of ~{self.shards_per_group})"
 
 class Queue:
     """Main queue for managing and processing jobs.
@@ -156,6 +114,8 @@ class Queue:
 
     def _emit(self, event: str, **data: Any) -> None:
         """Emit an event to all registered listeners."""
+        if getattr(self, "_batch_active", False):
+            return
         with self._events_lock:
             callbacks = list(self._events[event])
         for callback in callbacks:
@@ -168,19 +128,12 @@ class Queue:
     def batch(self) -> Generator[None, None, None]:
         """Context manager for batch operations (disables events temporarily)."""
         with self._events_lock:
-            if not hasattr(self, "_batch_depth"):
-                self._batch_depth = 0
-            self._batch_depth += 1
-            if self._batch_depth == 1:
-                self._original_emit = self._emit
-                self._emit = lambda event, **data: None
+            self._batch_active = True
         try:
             yield
         finally:
             with self._events_lock:
-                self._batch_depth -= 1
-                if self._batch_depth == 0:
-                    self._emit = self._original_emit
+                self._batch_active = False
 
     def enqueue(
         self,
@@ -273,7 +226,7 @@ class Queue:
                         total += 1
         elif fmt == "csv":
             with open(filepath) as f:
-                for row in csv.dictReader(f):
+                for row in csv.DictReader(f):
                     payload = {k: v for k, v in row.items() if k != "priority"}
                     priority = int(row.get("priority", 0))
                     self.enqueue(payload=payload, priority=priority)
@@ -301,7 +254,6 @@ class Queue:
         if not self.circuit_breaker.is_allowed():
             return None
 
-        # Fast path: single group = flat random scan (≤4 shards)
         groups = self._shard_groups.randomized_groups()
         if len(groups) == 1:
             shard_order = list(groups[0])
@@ -401,13 +353,7 @@ class Queue:
         """
         total = 0
         for shard_id in range(self.num_shards):
-            with self.shard_manager.get_connection(shard_id) as conn:
-                if status:
-                    cursor = conn.execute("DELETE FROM fila WHERE status=?", (status,))
-                else:
-                    cursor = conn.execute("DELETE FROM fila")
-                total += cursor.rowcount
-                conn.commit()
+            total += self.shard_manager.purge_jobs(shard_id, status)
         return total
 
     def get_failed_jobs(self, limit: int = 100) -> list[Job]:

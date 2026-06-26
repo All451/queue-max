@@ -31,28 +31,29 @@ pip install queue-max[flask]     # Flask extension
 ## Architecture
 
 ```
-                    ┌──────────────────────────────────────────────┐
-                    │                   Queue                      │
-                    │  ┌────────────┐  ┌──────────┐  ┌──────────┐  │
-                    │  │  Shard Mgr │  │RateLimit │  │ Circuit  │  │
-                    │  │  (SQLite)  │  │  Token   │  │  Breaker │  │
-                    │  └─────┬──────┘  └──────────┘  └──────────┘  │
-                    └────────┼─────────────────────────────────────┘
-                             │
-         ┌───────────────────┼───────────────────┐
-         ▼                   ▼                   ▼
-   ┌──────────┐       ┌──────────┐       ┌──────────┐
-   │ shard_0  │       │ shard_1  │       │ shard_N  │
-   │ fila.db  │       │ fila.db  │       │ fila.db  │
-   │   WAL    │       │   WAL    │       │   WAL    │
-   └──────────┘       └──────────┘       └──────────┘
-         │                   │                   │
-         └───────────┬───────┴───────┬───────────┘
-                     ▼               ▼
-               ┌──────────┐   ┌──────────┐
-               │  Worker  │   │  Worker  │  ...
-               │ (thread) │   │ (thread) │
-               └──────────┘   └──────────┘
+                    ┌──────────────────────────────────────────────────────────┐
+                    │                        Queue                            │
+                    │  ┌──────────┐  ┌────────────┐  ┌───────────┐  ┌──────┐  │
+                    │  │Connection│  │  ShardRepo  │  │RateLimiter│  │Circuit│  │
+                    │  │ Manager  │  │ (CRUD+Retry)│  │   Token   │  │Breaker│  │
+                    │  └────┬─────┘  └──────┬─────┘  └───────────┘  └──────┘  │
+                    └───────┼────────────────┼────────────────────────────────┘
+                            │                │
+          ┌──────────────────┼────────────────┼──────────────────┐
+          ▼                  ▼                ▼                  ▼
+    ┌──────────┐      ┌──────────┐      ┌──────────┐      ┌──────────┐
+    │ shard_0  │      │ shard_1  │      │ shard_N  │      │constants │
+    │ fila.db  │      │ fila.db  │      │ fila.db  │      │ schema   │
+    │   WAL    │      │   WAL    │      │   WAL    │      │ SQL      │
+    └──────────┘      └──────────┘      └──────────┘      └──────────┘
+          │                  │                  │
+          └──────────────────┼──────────────────┘
+                             ▼
+                   ┌───────────────────┐
+                   │  Worker (thread)  │
+                   │  AsyncWorker      │
+                   │  WorkerPool       │
+                   └───────────────────┘
 ```
 
 Each shard is an independent SQLite file in WAL mode. Workers scan shard groups in random order to distribute load.
@@ -169,7 +170,7 @@ queue = Queue(
 
 # ── Enqueue ──
 queue.enqueue(payload, pagina_id=None, priority=0, max_retries=None)
-queue.enqueue_batch([{"payload": {...}, "pagina_id": 1, "priority": 2}, ...])
+queue.enqueue_batch([{"payload": {...}, "pagina_id": 1, "priority": 2}, ...])  # pagina_id for consistent sharding
 queue.enqueue_from_file("jobs.jsonl", fmt="jsonl")
 
 # ── Process ──
@@ -222,31 +223,32 @@ stats = queue.get_stats()
 from queue_max import Job, JobStatus, JobPriority
 
 # Job properties
-job.id              # int — job ID (unique per shard)
-job.payload         # dict — job data
-job.status          # JobStatus — PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED
-job.priority_int    # int — 0, 1, or 2
-job.shard_id        # int — which shard holds this job
-job.tentativas      # int — attempt count
-job.max_tentativas  # int — max attempts allowed = max_retries + 1
-job.last_error      # str or None
-job.error_type      # str or None
-job.worker_id       # str or None
-job.created_at      # ISO timestamp
-job.next_retry_at   # ISO timestamp or None (retry scheduled for the future)
-job.started_at      # ISO timestamp or None
-job.completed_at    # ISO timestamp or None
+job.id                # int — job ID (unique per shard)
+job.payload           # dict — job data
+job.partition_key     # int or None — consistent shard routing key
+job.status            # JobStatus — PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED
+job.priority_int      # int — 0, 1, or 2
+job.shard_id          # int — which shard holds this job
+job.attempts          # int — attempt count
+job.max_attempts      # int — max attempts allowed = max_retries + 1
+job.last_error        # str or None
+job.error_type        # str or None
+job.worker_id         # str or None
+job.created_at        # ISO timestamp
+job.next_retry_at     # ISO timestamp or None (retry scheduled for the future)
+job.started_at        # ISO timestamp or None
+job.completed_at      # ISO timestamp or None
 
 # Convenience checks
-job.is_pending      # bool
-job.is_processing   # bool
-job.is_completed    # bool
-job.is_failed       # bool
-job.is_cancelled    # bool
-job.is_terminal     # bool — completed, failed, or cancelled
-job.can_retry       # bool — tentativas < max_tentativas
-job.remaining_retries  # int
-job.age_seconds     # float or None
+job.is_pending        # bool
+job.is_processing     # bool
+job.is_completed      # bool
+job.is_failed         # bool
+job.is_cancelled      # bool
+job.is_terminal       # bool — completed, failed, or cancelled
+job.can_retry         # bool — attempts < max_attempts
+job.remaining_retries # int
+job.age_seconds       # float or None
 job.processing_time_seconds  # float or None
 ```
 
@@ -614,15 +616,18 @@ Per-shard statistics: version, created_at, last_vacuum, total_jobs_processed, to
 
 ## Performance
 
-| Scenario | Config | Throughput |
-|----------|--------|-----------|
+| Scenario | Config | Result |
+|----------|--------|--------|
 | Burst | 20 workers, 10 shards | **~3.300 jobs/sec** |
 | Contention | 10 workers, 1 shard | **~1.660 jobs/sec** |
 | 30% failure | 8 workers, max_retries=2 | **Stable** |
-| 50k jobs | 12 workers, 12 shards | **219 jobs/sec** (enqueue bottleneck) |
+| **100k jobs** | **16 workers, 8 shards** | **1.400 jobs/s — 0 duplicatas** |
+| **500k jobs** | **16 workers, 8 shards** | **355 jobs/s — 0 duplicatas** |
+| Exactly-once (500k) | 16 workers, 8 shards | **✅ 0 perdas, 0 duplicatas** |
 
 - Max queue size: 1M+ jobs per shard
 - [Detailed stress test results](docs/stress-test.md)
+- [Run your own: `python tests/stress_test.py`](tests/stress_test.py)
 
 ## Running Tests
 

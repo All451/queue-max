@@ -2,20 +2,18 @@
 
 Workers run in their own thread, polling the queue for jobs,
 executing the processing function, and managing job lifecycle.
-Includes state machine, callbacks, async support, and auto-scaling pool.
+Includes state machine, callbacks, and stats tracking.
 """
 
-import asyncio
 import logging
 import threading
 import time
-import traceback
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Optional
 
-from queue_max.core.queue import Queue
+from queue_max.core.queue.queue import Queue
 from queue_max.utils.helpers import get_env_int, is_retryable_error, now_iso
 
 logger = logging.getLogger("queue_max.worker")
@@ -112,10 +110,6 @@ class Worker:
     def state(self) -> str:
         return self._state.value
 
-    @property
-    def is_running(self) -> bool:
-        return self._state == WorkerState.RUNNING
-
     def start(self) -> None:
         """Start the worker in a background thread."""
         if self._state in (WorkerState.RUNNING, WorkerState.STARTING):
@@ -131,7 +125,6 @@ class Worker:
             daemon=True,
         )
         self._thread.start()
-        self._state = WorkerState.RUNNING
         logger.info("Worker %s started", self.worker_id)
 
     def stop(self, timeout: float = 10.0) -> None:
@@ -154,6 +147,7 @@ class Worker:
 
     def _run_loop(self) -> None:
         """Main worker processing loop."""
+        self._state = WorkerState.RUNNING
         while not self._stop_event.is_set():
             try:
                 job = self.queue.pop_job(self.worker_id)
@@ -200,7 +194,7 @@ class Worker:
         except Exception as e:
             permanent = not is_retryable_error(e)
             self.queue.fail_job(job.id, job.shard_id, e, permanent=permanent)
-            if permanent or job.tentativas + 1 >= job.max_tentativas:
+            if permanent or job.attempts + 1 >= job.max_attempts:
                 self._stats.failed += 1
             else:
                 self._stats.retried += 1
@@ -268,174 +262,3 @@ class Worker:
 
     def __repr__(self) -> str:
         return f"Worker(id='{self.worker_id}', state={self._state.value})"
-
-
-class AsyncWorker(Worker):
-    """Worker that supports async/await process functions."""
-
-    def _run_loop(self) -> None:
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-        try:
-            while not self._stop_event.is_set():
-                try:
-                    job = self.queue.pop_job(self.worker_id)
-                except Exception as e:
-                    logger.exception("AsyncWorker %s: pop error: %s", self.worker_id, e)
-                    self._stats.last_error = str(e)
-                    time.sleep(self.poll_interval)
-                    continue
-                if job is None:
-                    self._idle_wait()
-                    continue
-                self._loop.run_until_complete(self._process_async(job))
-                self._send_heartbeat()
-        finally:
-            self._loop.run_until_complete(self._loop.shutdown_asyncgens())
-            self._loop.close()
-            self._loop = None
-
-    async def _process_async(self, job: Any) -> None:
-        start_time = time.monotonic()
-        self._last_job_shard_id = job.shard_id
-        try:
-            if asyncio.iscoroutinefunction(self.process_function):
-                result = await self.process_function(job.payload)
-            else:
-                result = self.process_function(job.payload)
-            self.queue.complete_job(job.id, job.shard_id)
-            self._stats.processed += 1
-            self._stats.total_runtime_seconds += time.monotonic() - start_time
-        except Exception as e:
-            permanent = not is_retryable_error(e)
-            self.queue.fail_job(job.id, job.shard_id, e, permanent=permanent)
-            if permanent or job.tentativas + 1 >= job.max_tentativas:
-                self._stats.failed += 1
-            else:
-                self._stats.retried += 1
-            self._stats.total_runtime_seconds += time.monotonic() - start_time
-            self._stats.last_error = str(e)
-
-
-class WorkerPool:
-    """Manages multiple Worker instances for parallel processing.
-
-    Supports auto-scaling based on queue depth.
-
-    Attributes:
-        workers: list of Worker instances.
-    """
-
-    def __init__(
-        self,
-        workers: Optional[list[Worker]] = None,
-        auto_scale: bool = False,
-        min_workers: int = 1,
-        max_workers: int = 10,
-        scale_up_threshold: int = 100,
-        scale_down_threshold: int = 10,
-        scale_check_interval: float = 60.0,
-    ):
-        self.workers: list[Worker] = workers or []
-        self.auto_scale = auto_scale
-        self.min_workers = min_workers
-        self.max_workers = max_workers
-        self.scale_up_threshold = scale_up_threshold
-        self.scale_down_threshold = scale_down_threshold
-        self.scale_check_interval = scale_check_interval
-        self._queue = workers[0].queue if workers else None
-        self._scale_thread: Optional[threading.Thread] = None
-        self._stop_scale = threading.Event()
-
-    def add_worker(self, worker: Worker) -> None:
-        self.workers.append(worker)
-
-    def remove_worker(self, worker: Worker) -> None:
-        if worker in self.workers:
-            worker.stop()
-            self.workers.remove(worker)
-
-    def start_all(self) -> None:
-        for worker in self.workers:
-            worker.start()
-        if self.auto_scale and self._queue:
-            self._start_auto_scaling()
-
-    def stop_all(self, timeout: float = 10.0) -> None:
-        self._stop_auto_scaling()
-        for worker in self.workers:
-            worker.stop(timeout=timeout)
-
-    def _start_auto_scaling(self) -> None:
-        self._stop_scale.clear()
-        self._scale_thread = threading.Thread(target=self._scale_loop, daemon=True)
-        self._scale_thread.start()
-
-    def _stop_auto_scaling(self) -> None:
-        self._stop_scale.set()
-        if self._scale_thread and self._scale_thread.is_alive():
-            self._scale_thread.join(timeout=5)
-
-    def _scale_loop(self) -> None:
-        while not self._stop_scale.is_set():
-            try:
-                self._check_and_scale()
-            except Exception as e:
-                logger.error("Auto-scaling error: %s", e)
-            self._stop_scale.wait(timeout=self.scale_check_interval)
-
-    def _check_and_scale(self) -> None:
-        if not self._queue:
-            return
-        stats = self._queue.get_stats()
-        pending = stats.get("pending", 0)
-        current = len(self.workers)
-        if pending > self.scale_up_threshold and current < self.max_workers:
-            self._scale_to(min(self.max_workers, current + 1), f"pending={pending}")
-        elif pending < self.scale_down_threshold and current > self.min_workers:
-            self._scale_to(max(self.min_workers, current - 1), f"pending={pending}")
-
-    def _scale_to(self, target: int, reason: str) -> None:
-        if target == len(self.workers):
-            return
-        logger.info("Scaling workers %d -> %d: %s", len(self.workers), target, reason)
-        if target > len(self.workers):
-            for i in range(len(self.workers), target):
-                w = Worker(
-                    worker_id=f"pool-worker-{i+1}",
-                    process_function=self.workers[0].process_function,
-                    queue=self._queue,
-                )
-                w.start()
-                self.workers.append(w)
-        else:
-            for w in self.workers[target:]:
-                w.stop()
-            self.workers = self.workers[:target]
-
-    def get_stats(self) -> dict[str, Any]:
-        per_worker = [w.get_stats() for w in self.workers]
-        return {
-            "workers": per_worker,
-            "total_workers": len(self.workers),
-            "total_processed": sum(w["processed"] for w in per_worker),
-            "total_failed": sum(w["failed"] for w in per_worker),
-            "total_retried": sum(w["retried"] for w in per_worker),
-            "auto_scale_enabled": self.auto_scale,
-        }
-
-    def wait_for_idle(self, timeout: Optional[float] = None) -> bool:
-        start = time.time()
-        while True:
-            busy = sum(1 for w in self.workers if w.get_current_job() is not None)
-            if busy == 0:
-                return True
-            if timeout and (time.time() - start) > timeout:
-                return False
-            time.sleep(0.5)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        self.stop_all()

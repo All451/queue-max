@@ -9,7 +9,7 @@ import time
 import pytest
 
 from queue_max import Queue, Worker
-from queue_max.core.database import ShardManager
+from queue_max.core.db import ShardManager
 
 
 class TestIntegration:

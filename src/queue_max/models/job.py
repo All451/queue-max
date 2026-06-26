@@ -12,6 +12,9 @@ from enum import Enum
 from typing import Any, Optional, Union
 from uuid import uuid4
 
+from queue_max.utils.helpers import backoff_delay, now_iso as _now_iso
+
+
 class JobStatus(Enum):
     """Possible job statuses."""
     PENDING = "pending"
@@ -21,6 +24,7 @@ class JobStatus(Enum):
     CANCELLED = "cancelled"
     SCHEDULED = "scheduled"
 
+
 class JobPriority(Enum):
     """Job priority levels."""
     LOW = 0
@@ -29,23 +33,31 @@ class JobPriority(Enum):
 
     @classmethod
     def from_int(cls, value: int) -> "JobPriority":
-        """Convert integer to JobPriority."""
         for priority in cls:
             if priority.value == value:
                 return priority
         return cls.MEDIUM
 
+
 @dataclass
 class JobResult:
-    """Result of a job execution."""
+    """Result of a job execution.
+
+    Attributes:
+        success: Whether the job completed without error.
+        result: Return value of the job function (must be JSON-serializable).
+        error: String representation of the exception, if any.
+        execution_time: Wall-clock seconds the job took.
+        worker_id: ID of the worker that ran the job.
+        completed_at: ISO UTC timestamp of completion.
+    """
     success: bool
     result: Any = None
-    error: Optional[Exception] = None
+    error: Optional[str] = None
     execution_time: float = 0.0
     worker_id: Optional[str] = None
     completed_at: Optional[str] = None
 
-from queue_max.utils.helpers import now_iso as _now_iso
 
 @dataclass
 class Job:
@@ -53,12 +65,12 @@ class Job:
 
     Attributes:
         id: Unique identifier for the job.
-        pagina_id: Optional ID used for consistent sharding.
+        partition_key: Optional integer used for consistent sharding.
         payload: JSON-serializable dictionary with job data.
         status: Current status.
         priority: Job priority (0=low, 1=medium, 2=high).
-        tentativas: Number of attempts made so far.
-        max_tentativas: Maximum number of retry attempts.
+        attempts: Number of attempts made so far.
+        max_attempts: Maximum number of retry attempts.
         retry_delay: Base delay in seconds for exponential backoff.
         last_error: Last error message.
         error_type: Type/class of the last error.
@@ -67,10 +79,10 @@ class Job:
         heartbeat: Last activity timestamp (ISO UTC).
         created_at: Creation timestamp (ISO UTC).
         started_at: When processing started (ISO UTC).
-        completed_at: When job completed/failed (ISO UTC).
+        completed_at: When job completed or permanently failed (ISO UTC).
         next_retry_at: Scheduled next retry timestamp (ISO UTC).
         shard_id: Shard this job belongs to.
-        tags: list of tags for categorization.
+        tags: List of tags for categorisation.
         metadata: Additional metadata dictionary.
         parent_job_id: Optional parent job ID for dependency chains.
         timeout_seconds: Maximum execution time in seconds.
@@ -79,11 +91,11 @@ class Job:
 
     id: int
     payload: dict[str, Any]
-    pagina_id: Optional[int] = None
+    partition_key: Optional[int] = None
     status: Union[JobStatus, str] = JobStatus.PENDING
     priority: Union[JobPriority, int] = JobPriority.MEDIUM
-    tentativas: int = 0
-    max_tentativas: int = 3
+    attempts: int = 0
+    max_attempts: int = 3
     retry_delay: int = 60
     last_error: Optional[str] = None
     error_type: Optional[str] = None
@@ -101,8 +113,8 @@ class Job:
     timeout_seconds: Optional[int] = None
     progress: float = 0.0
 
-    def __post_init__(self):
-        """Initialize timestamps and normalize enums."""
+    def __post_init__(self) -> None:
+        """Initialise timestamps and normalise enums."""
         if isinstance(self.status, str):
             try:
                 self.status = JobStatus(self.status)
@@ -112,6 +124,10 @@ class Job:
             self.priority = JobPriority.from_int(self.priority)
         if self.created_at is None:
             self.created_at = _now_iso()
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
 
     @property
     def status_str(self) -> str:
@@ -143,15 +159,19 @@ class Job:
 
     @property
     def is_terminal(self) -> bool:
-        return self.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED)
+        return self.status in (
+            JobStatus.COMPLETED,
+            JobStatus.FAILED,
+            JobStatus.CANCELLED,
+        )
 
     @property
     def can_retry(self) -> bool:
-        return self.tentativas < self.max_tentativas and self.status == JobStatus.FAILED
+        return self.attempts < self.max_attempts and self.status == JobStatus.FAILED
 
     @property
     def remaining_retries(self) -> int:
-        return max(0, self.max_tentativas - self.tentativas)
+        return max(0, self.max_attempts - self.attempts)
 
     @property
     def age_seconds(self) -> Optional[float]:
@@ -174,8 +194,11 @@ class Job:
                 return None
         return None
 
+    # ------------------------------------------------------------------
+    # Lifecycle mutators
+    # ------------------------------------------------------------------
+
     def mark_processing(self, worker_id: str) -> None:
-        """Mark job as being processed by a worker."""
         self.status = JobStatus.PROCESSING
         self.worker_id = worker_id
         self.started_at = _now_iso()
@@ -183,7 +206,6 @@ class Job:
         self.progress = 0.0
 
     def mark_completed(self, result: Any = None) -> None:
-        """Mark job as completed with optional result."""
         self.status = JobStatus.COMPLETED
         self.completed_at = _now_iso()
         self.progress = 100.0
@@ -194,49 +216,49 @@ class Job:
             self.metadata["result"] = result
 
     def mark_failed(self, error: Exception, permanent: bool = False) -> None:
-        """Mark job as failed, scheduling retry if applicable."""
-        self.status = JobStatus.FAILED
-        self.completed_at = _now_iso()
         self.last_error = str(error)
         self.error_type = type(error).__name__
         self.error_stack = "".join(
             traceback.format_exception(type(error), error, error.__traceback__)
         )
-        if not permanent and self.can_retry:
+        self.attempts += 1
+
+        if not permanent and self.attempts < self.max_attempts:
             self.status = JobStatus.PENDING
-            self.tentativas += 1
+            self.completed_at = None
             self._schedule_retry()
+        else:
+            self.status = JobStatus.FAILED
+            self.completed_at = _now_iso()
 
     def mark_cancelled(self) -> None:
-        """Mark job as cancelled."""
         self.status = JobStatus.CANCELLED
         self.completed_at = _now_iso()
 
     def update_progress(self, progress: float) -> None:
-        """Update job progress (0-100)."""
-        self.progress = max(0, min(100, progress))
+        self.progress = max(0.0, min(100.0, progress))
         self.heartbeat = _now_iso()
 
     def _schedule_retry(self) -> None:
-        """Schedule retry with exponential backoff and jitter."""
-        import random
-        delay = float(self.retry_delay) * (2 ** (self.tentativas - 1))
-        jitter = delay * 0.2
-        delay = delay + (random.random() * jitter * 2 - jitter)
-        delay = min(delay, 3600)
+        delay = backoff_delay(self.attempts, self.retry_delay)
         next_retry = datetime.now(timezone.utc) + timedelta(seconds=delay)
-        self.next_retry_at = next_retry.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        self.next_retry_at = (
+            next_retry.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        )
+
+    # ------------------------------------------------------------------
+    # Serialisation
+    # ------------------------------------------------------------------
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert job to a dictionary for serialization."""
         return {
             "id": self.id,
-            "pagina_id": self.pagina_id,
+            "partition_key": self.partition_key,
             "payload": self.payload,
             "status": self.status_str,
             "priority": self.priority_int,
-            "tentativas": self.tentativas,
-            "max_tentativas": self.max_tentativas,
+            "attempts": self.attempts,
+            "max_attempts": self.max_attempts,
             "retry_delay": self.retry_delay,
             "last_error": self.last_error,
             "error_type": self.error_type,
@@ -257,7 +279,6 @@ class Job:
 
     @classmethod
     def from_row(cls, row: dict, shard_id: int = 0) -> "Job":
-        """Create a Job from a database row dict."""
         raw = row.get("payload")
         if isinstance(raw, str):
             try:
@@ -283,12 +304,12 @@ class Job:
 
         return cls(
             id=row["id"],
-            pagina_id=row.get("pagina_id"),
+            partition_key=row.get("partition_key") or row.get("pagina_id"),
             payload=payload,
             status=row.get("status", "pending"),
             priority=row.get("priority", 1),
-            tentativas=row.get("tentativas", 0),
-            max_tentativas=row.get("max_tentativas", 3),
+            attempts=row.get("attempts") or row.get("tentativas", 0),
+            max_attempts=row.get("max_attempts") or row.get("max_tentativas", 3),
             retry_delay=row.get("retry_delay", 60),
             last_error=row.get("last_error"),
             error_type=row.get("error_type"),
@@ -311,22 +332,21 @@ class Job:
     def create(
         cls,
         payload: dict[str, Any],
-        pagina_id: Optional[int] = None,
+        partition_key: Optional[int] = None,
         priority: Union[JobPriority, int] = JobPriority.MEDIUM,
-        max_retries: int = 3,
+        max_attempts: int = 3,
         retry_delay: int = 60,
         tags: Optional[list[str]] = None,
         metadata: Optional[dict[str, Any]] = None,
         parent_job_id: Optional[int] = None,
         timeout_seconds: Optional[int] = None,
     ) -> "Job":
-        """Create a new job with default values (id=0 until assigned by DB)."""
         return cls(
             id=0,
             payload=payload,
-            pagina_id=pagina_id,
+            partition_key=partition_key,
             priority=priority,
-            max_tentativas=max_retries,
+            max_attempts=max_attempts,
             retry_delay=retry_delay,
             tags=tags or [],
             metadata=metadata or {},

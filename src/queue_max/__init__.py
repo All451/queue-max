@@ -22,8 +22,8 @@ Example:
 from queue_max.core.circuit_breaker import CircuitBreaker, CircuitState
 from queue_max.core.queue import Queue
 from queue_max.core.rate_limiter import RateLimitUnit, RateLimiter
-from queue_max.core.worker import AsyncWorker, Worker, WorkerPool, WorkerState
-from queue_max.core.decorator import periodic_task, retryable_task, task
+from queue_max.core.tasks import periodic_task, retryable_task, task
+from queue_max.core.workers import AsyncWorker, Worker, WorkerPool, WorkerState
 from queue_max.exceptions import (
     CircuitBreakerOpenError,
     ConfigurationError,
@@ -34,7 +34,7 @@ from queue_max.exceptions import (
 )
 from queue_max.models.job import Job, JobPriority, JobResult, JobStatus
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "Queue",

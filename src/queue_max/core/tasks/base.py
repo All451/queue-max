@@ -16,11 +16,12 @@ import inspect
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Tuple, Union
 
-from queue_max.core.queue import Queue
+from queue_max.core.queue.queue import Queue
 
 logger = logging.getLogger("queue_max.task")
+
 
 def _is_serializable(obj: Any) -> bool:
     """Check if an object is JSON-serializable."""
@@ -29,6 +30,7 @@ def _is_serializable(obj: Any) -> bool:
         return True
     except (TypeError, OverflowError):
         return False
+
 
 def task(
     queue: Optional[Queue] = None,
@@ -149,29 +151,6 @@ def task(
                 max_retries=max_retries,
             )
 
-        def schedule_at(when: Union[datetime, str], *args, **kwargs) -> dict[str, Any]:
-            """Schedule task to run at a specific time.
-
-            Args:
-                when: datetime object or ISO 8601 string.
-                *args: Positional arguments for the task.
-                **kwargs: Keyword arguments for the task.
-
-            Returns:
-                dict with job id and shard id.
-            """
-            if isinstance(when, str):
-                when = datetime.fromisoformat(when)
-            if when.tzinfo is None:
-                when = when.replace(tzinfo=timezone.utc)
-
-            now = datetime.now(timezone.utc)
-            if when <= now:
-                raise ValueError(f"Scheduled time {when} is in the past")
-
-            delay_seconds = (when - now).total_seconds()
-            return schedule_in(delay_seconds, *args, **kwargs)
-
         def schedule_in(seconds: float, *args, **kwargs) -> dict[str, Any]:
             """Schedule task to run after N seconds.
 
@@ -200,6 +179,29 @@ def task(
             )
             logger.info("Task %s scheduled at %s (job %s)", task_name, scheduled, result["id"])
             return result
+
+        def schedule_at(when: Union[datetime, str], *args, **kwargs) -> dict[str, Any]:
+            """Schedule task to run at a specific time.
+
+            Args:
+                when: datetime object or ISO 8601 string.
+                *args: Positional arguments for the task.
+                **kwargs: Keyword arguments for the task.
+
+            Returns:
+                dict with job id and shard id.
+            """
+            if isinstance(when, str):
+                when = datetime.fromisoformat(when)
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=timezone.utc)
+
+            now = datetime.now(timezone.utc)
+            if when <= now:
+                raise ValueError(f"Scheduled time {when} is in the past")
+
+            delay_seconds = (when - now).total_seconds()
+            return schedule_in(delay_seconds, *args, **kwargs)
 
         def map(items: list[Any], *args, **kwargs) -> list[dict[str, Any]]:
             """Enqueue multiple items for parallel processing.
@@ -238,6 +240,7 @@ def task(
                 "queue_stats": _queue.get_stats(),
             }
 
+        # schedule_in must be defined before schedule_at (it's called by schedule_at)
         # Attach methods
         wrapper.delay = delay
         wrapper.schedule_at = schedule_at
@@ -254,93 +257,6 @@ def task(
         wrapper.priority = priority
         wrapper.max_retries = max_retries
 
-        return wrapper
-
-    return decorator
-
-def periodic_task(interval: int, **task_kwargs) -> Callable:
-    """Decorator for tasks that run periodically.
-
-    Args:
-        interval: Seconds between automatic executions.
-        **task_kwargs: Arguments passed through to @task.
-
-    Returns:
-        Decorated function with .start_scheduler() method.
-
-    Example:
-        @periodic_task(interval=3600, priority=1)
-        def cleanup():
-            print("Cleaning up...")
-
-        cleanup.start_scheduler()
-    """
-    def decorator(func: Callable) -> Callable:
-        decorated = task(**task_kwargs)(func)
-
-        def start_scheduler() -> None:
-            import threading
-            import time as _time
-
-            def _run():
-                while True:
-                    try:
-                        decorated.delay()
-                    except Exception as e:
-                        logger.error("Periodic task %s failed: %s", func.__name__, e)
-                    _time.sleep(interval)
-
-            thread = threading.Thread(target=_run, daemon=True)
-            thread.start()
-
-        decorated.start_scheduler = start_scheduler
-        return decorated
-
-    return decorator
-
-def retryable_task(
-    max_retries: int = 5,
-    retry_on: Optional[list[Exception]] = None,
-    **task_kwargs,
-) -> Callable:
-    """Decorator for tasks that should retry synchronously on specific exceptions.
-
-    Args:
-        max_retries: Max retry attempts.
-        retry_on: list of exception types to retry on (default: all).
-        **task_kwargs: Arguments passed through to @task.
-
-    Returns:
-        Decorated function with .delay() and synchronous retry logic.
-    """
-    def decorator(func: Callable) -> Callable:
-        task_kwargs.setdefault("max_retries", max_retries)
-        decorated = task(**task_kwargs)(func)
-
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            retry_on_exceptions = retry_on or (Exception,)
-            attempt = 0
-            while attempt <= max_retries:
-                try:
-                    return func(*args, **kwargs)
-                except retry_on_exceptions as e:
-                    attempt += 1
-                    if attempt > max_retries:
-                        raise
-                    import time as _time
-                    delay = task_kwargs.get("retry_delay", 60) * (2 ** (attempt - 1))
-                    logger.warning(
-                        "Retry %d/%d for %s in %.1fs: %s",
-                        attempt, max_retries, func.__name__, delay, e,
-                    )
-                    _time.sleep(delay)
-
-        wrapper.delay = decorated.delay
-        wrapper.schedule_at = decorated.schedule_at
-        wrapper.schedule_in = decorated.schedule_in
-        wrapper.map = decorated.map
-        wrapper.task_name = decorated.task_name
         return wrapper
 
     return decorator

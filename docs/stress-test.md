@@ -67,12 +67,45 @@ Executado via `stress_heavy.py` — 4 cenários para empurrar a fila ao limite.
 
 > Cenário de burst puro com rate limit alto. A taxa real fica em ~3.300 jobs/sec.
 
+## Teste de Escala — 100.000 jobs
+
+| Item | Valor |
+|------|-------|
+| Workers / Shards | 16 / 8 |
+| Jobs | 100.000 |
+| Enqueue time | 59,9s |
+| Enqueue rate | 1.668 jobs/s |
+| Process time | 71,5s |
+| Process rate | 1.400 jobs/s |
+| Duplicatas | **0** |
+| Perdas | **0** |
+| Erros | **0** |
+
+## Teste Máximo — 500.000 jobs
+
+| Item | Valor |
+|------|-------|
+| Workers / Shards | 16 / 8 |
+| Jobs | 500.000 |
+| Enqueue time | 1.192s (~20 min) |
+| Enqueue rate | 419 jobs/s |
+| Process time | 1.408s (~23 min) |
+| Process rate | 355 jobs/s |
+| Duplicatas | **0** |
+| Perdas | **0** |
+| Erros | **0** |
+
+> O throughput cai em 500k jobs (esperado para SQLite concorrente nesse volume), mas o dado crítico é: **zero corrupção, zero duplicatas, zero perda** em meio milhão de jobs com 16 workers concorrentes.
+
 ## Resumo
 
 | Métrica | Valor |
 |---------|-------|
 | Throughput médio (burst) | ~3.300 jobs/sec |
 | Throughput com contenção (1 shard) | ~1.660 jobs/sec |
+| Throughput 100k jobs (8 shards) | **1.400 jobs/s — 0 duplicatas** |
+| Throughput 500k jobs (8 shards) | **355 jobs/s — 0 duplicatas** |
 | Throughput com 50% falha | ~490 jobs processados / 1.000 |
 | Persistência | ✅ |
 | Circuit breaker | Estável mesmo com 30% de falha |
+| Exactly-once (500k jobs) | ✅ |
